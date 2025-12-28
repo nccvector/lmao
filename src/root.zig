@@ -83,6 +83,53 @@ pub fn MatrixX(comptime T: type, comptime R: usize, comptime C: usize) type {
             }
             return out;
         }
+
+        fn isVec() bool {
+            return C == 1 and R >= 2 and R <= 4;
+        }
+
+        /// Swizzle using comptime string: v.sw("yzx") or v.sw("wxyz")
+        pub fn sw(self: Self, comptime pattern: []const u8) MatrixX(T, pattern.len, 1) {
+            comptime {
+                if (!isVec()) @compileError("sw: only valid for vectors MatrixX(T, R, 1) where R=2..4");
+            }
+
+            var out: MatrixX(T, pattern.len, 1) = undefined;
+
+            inline for (pattern, 0..) |ch, i| {
+                const idx: usize = switch (ch) {
+                    'x' => 0,
+                    'y' => 1,
+                    'z' => 2,
+                    'w' => 3,
+                    else => @compileError("sw: pattern may only contain 'x','y','z','w'"),
+                };
+                comptime {
+                    if (idx >= R)
+                        @compileError("sw: component out of range for this vector size");
+                }
+                out.data[i] = self.data[idx];
+            }
+            return out;
+        }
+
+        // Optional single-component helpers (method style)
+        pub inline fn x(self: Self) T {
+            comptime if (!(isVec() and R >= 1)) @compileError("x only for vec");
+            return self.data[0];
+        }
+        pub inline fn y(self: Self) T {
+            comptime if (!(isVec() and R >= 2)) @compileError("y only for vec2..4");
+            return self.data[1];
+        }
+        pub inline fn z(self: Self) T {
+            comptime if (!(isVec() and R >= 3)) @compileError("z only for vec3..4");
+            return self.data[2];
+        }
+        pub inline fn w(self: Self) T {
+            comptime if (!(isVec() and R == 4)) @compileError("w only for vec4");
+            return self.data[3];
+        }
     };
 }
 
@@ -102,7 +149,7 @@ fn mat3_dot_vec3(mat: *const [9]f32, vec: *const [3]f32, out: *[3]f32) void {
     out.* = Mat3f.fromArray(mat).dot(Vec3f.fromArray(vec)).toArray();
 }
 
-fn mat4_dot_vec4(mat: *const [16]f32, vec: *const [4]f32, out: *[4]f32) void {
+export fn mat4_dot_vec4(mat: *const [16]f32, vec: *const [4]f32, out: *[4]f32) void {
     out.* = Mat4f.fromArray(mat).dot(Vec4f.fromArray(vec)).toArray();
 }
 
@@ -114,6 +161,6 @@ fn mat3_dot_mat3(matA: *const [9]f32, matB: *const [9]f32, out: *[9]f32) void {
     out.* = Mat3f.fromArray(matA).dot(Mat3f.fromArray(matB)).toArray();
 }
 
-fn mat4_dot_mat4(matA: *const [16]f32, matB: *const [16]f32, out: *[16]f32) void {
+export fn mat4_dot_mat4(matA: *const [16]f32, matB: *const [16]f32, out: *[16]f32) void {
     out.* = Mat4f.fromArray(matA).dot(Mat4f.fromArray(matB)).toArray();
 }
