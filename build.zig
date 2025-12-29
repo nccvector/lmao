@@ -142,6 +142,49 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
 
+    // ReleaseFast test step
+    const fast_mod = b.addModule("lmao-fast", .{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = .ReleaseFast,
+    });
+
+    const fast_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+            .imports = &.{
+                .{ .name = "lmao", .module = fast_mod },
+            },
+        }),
+    });
+
+    const run_fast_tests = b.addRunArtifact(fast_tests);
+    const test_fast_step = b.step("test-fast", "Run tests in ReleaseFast mode");
+    test_fast_step.dependOn(&run_fast_tests.step);
+
+    // Benchmark executable - ALWAYS ReleaseFast for accurate timing
+    const iterations = b.option(u32, "N", "Number of iterations per benchmark (default: 1000000)") orelse 1_000_000;
+
+    const bench_exe = b.addExecutable(.{
+        .name = "bench",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/bench.zig"),
+            .target = target,
+            .optimize = .ReleaseFast, // ALWAYS ReleaseFast - hardcoded for benchmarks
+            .imports = &.{
+                .{ .name = "lmao", .module = fast_mod }, // Use ReleaseFast module
+            },
+        }),
+    });
+
+    const run_bench = b.addRunArtifact(bench_exe);
+    run_bench.addArg(b.fmt("-N={d}", .{iterations}));
+
+    const bench_step = b.step("bench", "Run benchmarks (use -DN=<num> for iterations, default 1000)");
+    bench_step.dependOn(&run_bench.step);
+
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
     // The Zig build system is entirely implemented in userland, which means
