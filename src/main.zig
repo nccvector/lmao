@@ -380,3 +380,370 @@ test "Mat4f dot Mat4f identity" {
         try std.testing.expectEqual(@as(f32, @floatFromInt(i + 1)), arr[i]);
     }
 }
+
+// ============================================================================
+// Comprehensive Dot Product Tests (with random values from NumPy)
+// ============================================================================
+
+const epsilon: f32 = 1e-4;
+
+fn expectApproxEqual(expected: f32, actual: f32) !void {
+    const diff = @abs(expected - actual);
+    if (diff > epsilon) {
+        std.debug.print("Expected: {d}, Actual: {d}, Diff: {d}\n", .{ expected, actual, diff });
+        return error.TestExpectedApproxEqual;
+    }
+}
+
+fn expectArrayApproxEqual(comptime N: usize, expected: [N]f32, actual: [N]f32) !void {
+    for (0..N) |i| {
+        try expectApproxEqual(expected[i], actual[i]);
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Square Matrix-Vector Products (dot and dotSIMD)
+// ----------------------------------------------------------------------------
+
+test "Mat2f dot Vec2f - random values" {
+    const m = Mat2f.fromArray(&.{ -2.509198, 9.014286, 4.639879, 1.973170 });
+    const v = Vec2f.fromArray(&.{ -6.879627, -6.880110 });
+    const expected = [_]f32{ -44.756935, -45.496262 };
+
+    const result = m.dot(v);
+    try expectArrayApproxEqual(2, expected, result.toArray());
+}
+
+test "Mat2f dotSIMD Vec2f - random values" {
+    const m = Mat2f.fromArray(&.{ -2.509198, 9.014286, 4.639879, 1.973170 });
+    const v = Vec2f.fromArray(&.{ -6.879627, -6.880110 });
+    const expected = [_]f32{ -44.756935, -45.496262 };
+
+    const result = m.dotSIMD(v);
+    try expectArrayApproxEqual(2, expected, result.toArray());
+}
+
+test "Mat3f dot Vec3f - random values" {
+    const m = Mat3f.fromArray(&.{ -8.838327, 7.323523, 2.022300, 4.161451, -9.588310, 9.398197, 6.648853, -5.753218, -6.363501 });
+    const v = Vec3f.fromArray(&.{ -6.331910, -3.915155, 0.495129 });
+    const expected = [_]f32{ 28.292059, 15.843105, -22.725945 };
+
+    const result = m.dot(v);
+    try expectArrayApproxEqual(3, expected, result.toArray());
+}
+
+test "Mat3f dotSIMD Vec3f - random values" {
+    const m = Mat3f.fromArray(&.{ -8.838327, 7.323523, 2.022300, 4.161451, -9.588310, 9.398197, 6.648853, -5.753218, -6.363501 });
+    const v = Vec3f.fromArray(&.{ -6.331910, -3.915155, 0.495129 });
+    const expected = [_]f32{ 28.292059, 15.843105, -22.725945 };
+
+    const result = m.dotSIMD(v);
+    try expectArrayApproxEqual(3, expected, result.toArray());
+}
+
+test "Mat4f dot Vec4f - random values" {
+    const m = Mat4f.fromArray(&.{ -1.361100, -4.175417, 2.237058, -7.210123, -4.157107, -2.672763, -0.878600, 5.703519, -6.006525, 0.284689, 1.848291, -9.070992, 2.150897, -6.589518, -8.698968, 8.977711 });
+    const v = Vec4f.fromArray(&.{ 9.312640, 6.167947, -3.907725, -8.046557 });
+    const expected = [_]f32{ 10.845680, -97.659470, 11.586983, -58.859749 };
+
+    const result = m.dot(v);
+    try expectArrayApproxEqual(4, expected, result.toArray());
+}
+
+test "Mat4f dotSIMD Vec4f - random values" {
+    const m = Mat4f.fromArray(&.{ -1.361100, -4.175417, 2.237058, -7.210123, -4.157107, -2.672763, -0.878600, 5.703519, -6.006525, 0.284689, 1.848291, -9.070992, 2.150897, -6.589518, -8.698968, 8.977711 });
+    const v = Vec4f.fromArray(&.{ 9.312640, 6.167947, -3.907725, -8.046557 });
+    const expected = [_]f32{ 10.845680, -97.659470, 11.586983, -58.859749 };
+
+    const result = m.dotSIMD(v);
+    try expectArrayApproxEqual(4, expected, result.toArray());
+}
+
+// ----------------------------------------------------------------------------
+// Rectangular Matrix-Vector Products (dot and dotSIMD)
+// ----------------------------------------------------------------------------
+
+const Mat2x3f = lmao.MatrixX(f32, 2, 3);
+const Mat2x4f = lmao.MatrixX(f32, 2, 4);
+const Mat3x2f = lmao.MatrixX(f32, 3, 2);
+const Mat3x4f = lmao.MatrixX(f32, 3, 4);
+const Mat4x2f = lmao.MatrixX(f32, 4, 2);
+const Mat4x3f = lmao.MatrixX(f32, 4, 3);
+
+test "Mat2x3 dot Vec3 -> Vec2" {
+    const m = Mat2x3f.fromArray(&.{ 3.684660, -1.196950, -7.559235, -0.096462, -9.312229, 8.186408 });
+    const v = Vec3f.fromArray(&.{ -4.824400, 3.250446, -3.765779 });
+    const expected = [_]f32{ 6.799507, -60.631721 };
+
+    const result = m.dot(v);
+    try expectArrayApproxEqual(2, expected, result.toArray());
+}
+
+test "Mat2x3 dotSIMD Vec3 -> Vec2" {
+    const m = Mat2x3f.fromArray(&.{ 3.684660, -1.196950, -7.559235, -0.096462, -9.312229, 8.186408 });
+    const v = Vec3f.fromArray(&.{ -4.824400, 3.250446, -3.765779 });
+    const expected = [_]f32{ 6.799507, -60.631721 };
+
+    const result = m.dotSIMD(v);
+    try expectArrayApproxEqual(2, expected, result.toArray());
+}
+
+test "Mat2x4 dot Vec4 -> Vec2" {
+    const m = Mat2x4f.fromArray(&.{ 0.401360, 0.934206, -6.302911, 9.391692, 5.502656, 8.789979, 7.896547, 1.958000 });
+    const v = Vec4f.fromArray(&.{ 8.437485, -8.230150, -6.080343, -9.095454 });
+    const expected = [_]f32{ -51.400032, -91.736877 };
+
+    const result = m.dot(v);
+    try expectArrayApproxEqual(2, expected, result.toArray());
+}
+
+test "Mat2x4 dotSIMD Vec4 -> Vec2" {
+    const m = Mat2x4f.fromArray(&.{ 0.401360, 0.934206, -6.302911, 9.391692, 5.502656, 8.789979, 7.896547, 1.958000 });
+    const v = Vec4f.fromArray(&.{ 8.437485, -8.230150, -6.080343, -9.095454 });
+    const expected = [_]f32{ -51.400032, -91.736877 };
+
+    const result = m.dotSIMD(v);
+    try expectArrayApproxEqual(2, expected, result.toArray());
+}
+
+test "Mat3x2 dot Vec2 -> Vec3" {
+    const m = Mat3x2f.fromArray(&.{ -3.493393, -2.226454, -4.573020, 6.574750, -2.864933, -4.381310 });
+    const v = Vec2f.fromArray(&.{ 0.853922, -7.181516 });
+    const expected = [_]f32{ 13.006231, -51.121670, 29.018019 };
+
+    const result = m.dot(v);
+    try expectArrayApproxEqual(3, expected, result.toArray());
+}
+
+test "Mat3x2 dotSIMD Vec2 -> Vec3" {
+    const m = Mat3x2f.fromArray(&.{ -3.493393, -2.226454, -4.573020, 6.574750, -2.864933, -4.381310 });
+    const v = Vec2f.fromArray(&.{ 0.853922, -7.181516 });
+    const expected = [_]f32{ 13.006231, -51.121670, 29.018019 };
+
+    const result = m.dotSIMD(v);
+    try expectArrayApproxEqual(3, expected, result.toArray());
+}
+
+test "Mat3x4 dot Vec4 -> Vec3" {
+    const m = Mat3x4f.fromArray(&.{ 6.043940, -8.508987, 9.737739, 5.444895, -6.025686, -9.889558, 6.309228, 4.137147, 4.580143, 5.425407, -8.519107, -2.830685 });
+    const v = Vec4f.fromArray(&.{ -7.682619, 7.262069, 2.465963, -3.382040 });
+    const expected = [_]f32{ -102.628082, -23.959274, -7.222130 };
+
+    const result = m.dot(v);
+    try expectArrayApproxEqual(3, expected, result.toArray());
+}
+
+test "Mat3x4 dotSIMD Vec4 -> Vec3" {
+    const m = Mat3x4f.fromArray(&.{ 6.043940, -8.508987, 9.737739, 5.444895, -6.025686, -9.889558, 6.309228, 4.137147, 4.580143, 5.425407, -8.519107, -2.830685 });
+    const v = Vec4f.fromArray(&.{ -7.682619, 7.262069, 2.465963, -3.382040 });
+    const expected = [_]f32{ -102.628082, -23.959274, -7.222130 };
+
+    const result = m.dotSIMD(v);
+    try expectArrayApproxEqual(3, expected, result.toArray());
+}
+
+test "Mat4x2 dot Vec2 -> Vec4" {
+    const m = Mat4x2f.fromArray(&.{ -8.728833, -3.780354, -3.496334, 4.592124, 2.751149, 7.744255, -0.555701, -7.608115 });
+    const v = Vec2f.fromArray(&.{ 4.264896, 5.215701 });
+    const expected = [_]f32{ -56.944759, 9.039644, 52.125084, -42.051666 };
+
+    const result = m.dot(v);
+    try expectArrayApproxEqual(4, expected, result.toArray());
+}
+
+test "Mat4x2 dotSIMD Vec2 -> Vec4" {
+    const m = Mat4x2f.fromArray(&.{ -8.728833, -3.780354, -3.496334, 4.592124, 2.751149, 7.744255, -0.555701, -7.608115 });
+    const v = Vec2f.fromArray(&.{ 4.264896, 5.215701 });
+    const expected = [_]f32{ -56.944759, 9.039644, 52.125084, -42.051666 };
+
+    const result = m.dotSIMD(v);
+    try expectArrayApproxEqual(4, expected, result.toArray());
+}
+
+test "Mat4x3 dot Vec3 -> Vec4" {
+    const m = Mat4x3f.fromArray(&.{ 1.225544, 5.419343, -0.124088, 0.454657, -1.449180, -9.491617, -7.842172, -9.371416, 2.728208, -3.712880, 0.171414, 8.151329 });
+    const v = Vec3f.fromArray(&.{ -5.014155, -1.792342, 5.111023 });
+    const expected = [_]f32{ -16.492599, -48.194168, 70.062584, 59.971355 };
+
+    const result = m.dot(v);
+    try expectArrayApproxEqual(4, expected, result.toArray());
+}
+
+test "Mat4x3 dotSIMD Vec3 -> Vec4" {
+    const m = Mat4x3f.fromArray(&.{ 1.225544, 5.419343, -0.124088, 0.454657, -1.449180, -9.491617, -7.842172, -9.371416, 2.728208, -3.712880, 0.171414, 8.151329 });
+    const v = Vec3f.fromArray(&.{ -5.014155, -1.792342, 5.111023 });
+    const expected = [_]f32{ -16.492599, -48.194168, 70.062584, 59.971355 };
+
+    const result = m.dotSIMD(v);
+    try expectArrayApproxEqual(4, expected, result.toArray());
+}
+
+// ----------------------------------------------------------------------------
+// Square Matrix-Matrix Products (dot and dotSIMD)
+// ----------------------------------------------------------------------------
+
+test "Mat2f dot Mat2f - random values" {
+    const a = Mat2f.fromArray(&.{ -5.424037, -8.460402, -4.204971, -6.775574 });
+    const b = Mat2f.fromArray(&.{ 8.593953, 6.162407, 2.668075, 7.429212 });
+    const expected = [_]f32{ -69.186905, -96.279236, -54.215065, -76.249916 };
+
+    const result = a.dot(b);
+    try expectArrayApproxEqual(4, expected, result.toArray());
+}
+
+test "Mat2f dotSIMD Mat2f - random values" {
+    const a = Mat2f.fromArray(&.{ -5.424037, -8.460402, -4.204971, -6.775574 });
+    const b = Mat2f.fromArray(&.{ 8.593953, 6.162407, 2.668075, 7.429212 });
+    const expected = [_]f32{ -69.186905, -96.279236, -54.215065, -76.249916 };
+
+    const result = a.dotSIMD(b);
+    try expectArrayApproxEqual(4, expected, result.toArray());
+}
+
+test "Mat3f dot Mat3f - random values" {
+    const a = Mat3f.fromArray(&.{ 6.073442, -6.268599, 7.851180, 0.786845, 6.148803, 7.921826, -3.639930, -7.798962, -5.441297 });
+    const b = Mat3f.fromArray(&.{ -1.457844, 6.360295, 7.214612, -9.860957, 0.214946, -1.651780, -5.557844, -7.602693, -3.247697 });
+    const expected = [_]f32{ 9.324623, -22.408642, 28.673616, -105.808456, -53.900982, -30.207378, 112.453552, 16.541115, 4.293163 };
+
+    const result = a.dot(b);
+    try expectArrayApproxEqual(9, expected, result.toArray());
+}
+
+test "Mat3f dotSIMD Mat3f - random values" {
+    const a = Mat3f.fromArray(&.{ 6.073442, -6.268599, 7.851180, 0.786845, 6.148803, 7.921826, -3.639930, -7.798962, -5.441297 });
+    const b = Mat3f.fromArray(&.{ -1.457844, 6.360295, 7.214612, -9.860957, 0.214946, -1.651780, -5.557844, -7.602693, -3.247697 });
+    const expected = [_]f32{ 9.324623, -22.408642, 28.673616, -105.808456, -53.900982, -30.207378, 112.453552, 16.541115, 4.293163 };
+
+    const result = a.dotSIMD(b);
+    try expectArrayApproxEqual(9, expected, result.toArray());
+}
+
+test "Mat4f dot Mat4f - random values" {
+    const a = Mat4f.fromArray(&.{ 8.858194, -3.535941, 0.375812, 4.060379, -2.727408, 9.435641, 9.248946, -4.964354, -0.055030, -3.982434, -4.303190, -9.262261, 2.191287, 0.053580, -8.970425, -4.427071 });
+    const b = Mat4f.fromArray(&.{ 8.165318, -5.208762, -7.102103, -0.210945, 9.713009, -5.158895, 3.442711, 5.232392, -5.247249, 4.564327, -2.644337, 2.646116, 2.670594, 0.715494, -8.194204, 6.706050 });
+    const expected = [_]f32{ 46.856983, -23.278173, -109.350380, 7.853527, 7.589019, 4.192191, 68.076111, 41.128891, -41.286583, -5.436661, 73.956406, -94.325981, 53.660122, -55.801796, 44.618870, -53.606831 };
+
+    const result = a.dot(b);
+    try expectArrayApproxEqual(16, expected, result.toArray());
+}
+
+test "Mat4f dotSIMD Mat4f - random values" {
+    const a = Mat4f.fromArray(&.{ 8.858194, -3.535941, 0.375812, 4.060379, -2.727408, 9.435641, 9.248946, -4.964354, -0.055030, -3.982434, -4.303190, -9.262261, 2.191287, 0.053580, -8.970425, -4.427071 });
+    const b = Mat4f.fromArray(&.{ 8.165318, -5.208762, -7.102103, -0.210945, 9.713009, -5.158895, 3.442711, 5.232392, -5.247249, 4.564327, -2.644337, 2.646116, 2.670594, 0.715494, -8.194204, 6.706050 });
+    const expected = [_]f32{ 46.856983, -23.278173, -109.350380, 7.853527, 7.589019, 4.192191, 68.076111, 41.128891, -41.286583, -5.436661, 73.956406, -94.325981, 53.660122, -55.801796, 44.618870, -53.606831 };
+
+    const result = a.dotSIMD(b);
+    try expectArrayApproxEqual(16, expected, result.toArray());
+}
+
+// ----------------------------------------------------------------------------
+// Rectangular Matrix-Matrix Products (dot and dotSIMD)
+// ----------------------------------------------------------------------------
+
+test "Mat2x3 dot Mat3x2 -> Mat2x2" {
+    const a = Mat2x3f.fromArray(&.{ -3.584399, -6.269630, -9.184497, 1.817859, 3.551287, -9.668243 });
+    const b = Mat3x2f.fromArray(&.{ 0.241861, -5.470085, 2.903456, -6.512671, 3.818755, -2.265293 });
+    const expected = [_]f32{ -54.143860, 81.244583, -26.169975, -11.170803 };
+
+    const result = a.dot(b);
+    try expectArrayApproxEqual(4, expected, result.toArray());
+}
+
+test "Mat2x3 dotSIMD Mat3x2 -> Mat2x2" {
+    const a = Mat2x3f.fromArray(&.{ -3.584399, -6.269630, -9.184497, 1.817859, 3.551287, -9.668243 });
+    const b = Mat3x2f.fromArray(&.{ 0.241861, -5.470085, 2.903456, -6.512671, 3.818755, -2.265293 });
+    const expected = [_]f32{ -54.143860, 81.244583, -26.169975, -11.170803 };
+
+    const result = a.dotSIMD(b);
+    try expectArrayApproxEqual(4, expected, result.toArray());
+}
+
+test "Mat2x4 dot Mat4x3 -> Mat2x3" {
+    const a = Mat2x4f.fromArray(&.{ 8.734600, -7.249581, -3.178673, -7.730530, 8.493873, 7.546787, -4.841167, 3.199681 });
+    const b = Mat4x3f.fromArray(&.{ 6.344444, 1.104016, 0.593012, -5.162954, -8.137944, 7.944315, 8.008361, 2.662029, -3.219404, -3.015809, 4.519114, 7.942205 });
+    const expected = [_]f32{ 90.703270, 25.242966, -103.577255, -33.494263, -50.465569, 105.989212 };
+
+    const result = a.dot(b);
+    try expectArrayApproxEqual(6, expected, result.toArray());
+}
+
+test "Mat2x4 dotSIMD Mat4x3 -> Mat2x3" {
+    const a = Mat2x4f.fromArray(&.{ 8.734600, -7.249581, -3.178673, -7.730530, 8.493873, 7.546787, -4.841167, 3.199681 });
+    const b = Mat4x3f.fromArray(&.{ 6.344444, 1.104016, 0.593012, -5.162954, -8.137944, 7.944315, 8.008361, 2.662029, -3.219404, -3.015809, 4.519114, 7.942205 });
+    const expected = [_]f32{ 90.703270, 25.242966, -103.577255, -33.494263, -50.465569, 105.989212 };
+
+    const result = a.dotSIMD(b);
+    try expectArrayApproxEqual(6, expected, result.toArray());
+}
+
+test "Mat3x4 dot Mat4x2 -> Mat3x2" {
+    const a = Mat3x4f.fromArray(&.{ 7.741728, 5.597511, 2.840633, -8.317201, -6.767426, 7.971084, 2.128581, -9.816059, -7.970569, 3.270035, -9.898768, -6.783839 });
+    const b = Mat4x2f.fromArray(&.{ 0.974676, 3.837904, 3.039225, -5.514614, 4.243585, -5.255018, -3.492006, 4.929828 });
+    const expected = [_]f32{ 65.655952, -57.086044, 60.940422, -129.507385, -16.147404, -30.048212 };
+
+    const result = a.dot(b);
+    try expectArrayApproxEqual(6, expected, result.toArray());
+}
+
+test "Mat3x4 dotSIMD Mat4x2 -> Mat3x2" {
+    const a = Mat3x4f.fromArray(&.{ 7.741728, 5.597511, 2.840633, -8.317201, -6.767426, 7.971084, 2.128581, -9.816059, -7.970569, 3.270035, -9.898768, -6.783839 });
+    const b = Mat4x2f.fromArray(&.{ 0.974676, 3.837904, 3.039225, -5.514614, 4.243585, -5.255018, -3.492006, 4.929828 });
+    const expected = [_]f32{ 65.655952, -57.086044, 60.940422, -129.507385, -16.147404, -30.048212 };
+
+    const result = a.dotSIMD(b);
+    try expectArrayApproxEqual(6, expected, result.toArray());
+}
+
+test "Mat4x2 dot Mat2x3 -> Mat4x3" {
+    const a = Mat4x2f.fromArray(&.{ 2.992658, 6.984468, 3.152258, 1.366172, -8.126505, -2.645684, -4.695952, -5.120207 });
+    const b = Mat2x3f.fromArray(&.{ 9.460211, -2.138046, 7.840931, 2.622772, 5.896226, 0.052742 });
+    const expected = [_]f32{ 46.629845, 34.783562, 23.833597, 33.404182, 1.315588, 24.788691, -83.817474, 1.775287, -63.858902, -57.853836, -20.149738, -37.090687 };
+
+    const result = a.dot(b);
+    try expectArrayApproxEqual(12, expected, result.toArray());
+}
+
+test "Mat4x2 dotSIMD Mat2x3 -> Mat4x3" {
+    const a = Mat4x2f.fromArray(&.{ 2.992658, 6.984468, 3.152258, 1.366172, -8.126505, -2.645684, -4.695952, -5.120207 });
+    const b = Mat2x3f.fromArray(&.{ 9.460211, -2.138046, 7.840931, 2.622772, 5.896226, 0.052742 });
+    const expected = [_]f32{ 46.629845, 34.783562, 23.833597, 33.404182, 1.315588, 24.788691, -83.817474, 1.775287, -63.858902, -57.853836, -20.149738, -37.090687 };
+
+    const result = a.dotSIMD(b);
+    try expectArrayApproxEqual(12, expected, result.toArray());
+}
+
+test "Mat3x2 dot Mat2x4 -> Mat3x4" {
+    const a = Mat3x2f.fromArray(&.{ 1.538078, -0.149646, -6.095140, 4.449042, -4.384553, -9.513680 });
+    const b = Mat2x4f.fromArray(&.{ 2.909446, -6.457787, 8.809172, 9.078571, 8.297288, -2.596826, -9.690867, 8.566371 });
+    const expected = [_]f32{ 3.233297, -9.543972, 14.999392, 12.681624, 19.181503, 27.807726, -96.808220, -17.223021, -91.694366, 53.019878, 53.571537, -121.303192 };
+
+    const result = a.dot(b);
+    try expectArrayApproxEqual(12, expected, result.toArray());
+}
+
+test "Mat3x2 dotSIMD Mat2x4 -> Mat3x4" {
+    const a = Mat3x2f.fromArray(&.{ 1.538078, -0.149646, -6.095140, 4.449042, -4.384553, -9.513680 });
+    const b = Mat2x4f.fromArray(&.{ 2.909446, -6.457787, 8.809172, 9.078571, 8.297288, -2.596826, -9.690867, 8.566371 });
+    const expected = [_]f32{ 3.233297, -9.543972, 14.999392, 12.681624, 19.181503, 27.807726, -96.808220, -17.223021, -91.694366, 53.019878, 53.571537, -121.303192 };
+
+    const result = a.dotSIMD(b);
+    try expectArrayApproxEqual(12, expected, result.toArray());
+}
+
+test "Mat4x3 dot Mat3x4 -> Mat4x4" {
+    const a = Mat4x3f.fromArray(&.{ -1.436317, 9.333097, 9.272400, 7.060189, -4.111022, -2.298045, 7.022733, -3.661560, -6.610145, 1.136025, 8.723096, 3.920596 });
+    const b = Mat3x4f.fromArray(&.{ 1.401223, -8.056470, 2.300144, 9.801077, -7.198320, 0.366593, 7.547462, 4.815372, 3.940315, 4.049682, -2.810177, -4.128163 });
+    const expected = [_]f32{ -32.659039, 52.543362, 41.080364, -7.413100, 30.430334, -67.693626, -8.330412, 58.888062, 10.151446, -84.689720, 7.093498, 78.486328, -45.751427, 9.922639, 57.432686, 36.954365 };
+
+    const result = a.dot(b);
+    try expectArrayApproxEqual(16, expected, result.toArray());
+}
+
+test "Mat4x3 dotSIMD Mat3x4 -> Mat4x4" {
+    const a = Mat4x3f.fromArray(&.{ -1.436317, 9.333097, 9.272400, 7.060189, -4.111022, -2.298045, 7.022733, -3.661560, -6.610145, 1.136025, 8.723096, 3.920596 });
+    const b = Mat3x4f.fromArray(&.{ 1.401223, -8.056470, 2.300144, 9.801077, -7.198320, 0.366593, 7.547462, 4.815372, 3.940315, 4.049682, -2.810177, -4.128163 });
+    const expected = [_]f32{ -32.659039, 52.543362, 41.080364, -7.413100, 30.430334, -67.693626, -8.330412, 58.888062, 10.151446, -84.689720, 7.093498, 78.486328, -45.751427, 9.922639, 57.432686, 36.954365 };
+
+    const result = a.dotSIMD(b);
+    try expectArrayApproxEqual(16, expected, result.toArray());
+}
