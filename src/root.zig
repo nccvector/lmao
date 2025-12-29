@@ -18,7 +18,7 @@ pub fn dotRC1(comptime T: type, comptime R: usize, comptime C: usize, a: *const 
         // Stride: i * C → i * R (each row of transposed CxR matrix has R elements)
         const av: @Vector(R, T) = loadVN(T, R, a[0..].ptr + i * R);
         const vsp: @Vector(R, T) = @splat(b[i]);
-        out += av * vsp;
+        out = @mulAdd(@Vector(R, T), av, vsp, out);
     }
     return out;
 }
@@ -206,12 +206,20 @@ pub const Mat2f = MatrixX(f32, 2, 2);
 pub const Mat3f = MatrixX(f32, 3, 3);
 pub const Mat4f = MatrixX(f32, 4, 4);
 
-fn mat2_dot_vec2(mat: *const [4]f32, vec: *const [2]f32, out: *[2]f32) void {
+export fn mat2_dot_vec2(mat: *const [4]f32, vec: *const [2]f32, out: *[2]f32) void {
     out.* = Mat2f.fromArray(mat).dot(Vec2f.fromArray(vec)).toArray();
 }
 
-fn mat3_dot_vec3(mat: *const [9]f32, vec: *const [3]f32, out: *[3]f32) void {
+export fn mat2_dot_vec2_simd(mat: *const [4]f32, vec: *const [2]f32, out: *[2]f32) void {
+    out.* = Mat2f.fromArray(mat).dotSIMD(Vec2f.fromArray(vec)).toArray();
+}
+
+export fn mat3_dot_vec3(mat: *const [9]f32, vec: *const [3]f32, out: *[3]f32) void {
     out.* = Mat3f.fromArray(mat).dot(Vec3f.fromArray(vec)).toArray();
+}
+
+export fn mat3_dot_vec3_simd(mat: *const [9]f32, vec: *const [3]f32, out: *[3]f32) void {
+    out.* = Mat3f.fromArray(mat).dotSIMD(Vec3f.fromArray(vec)).toArray();
 }
 
 export fn mat4_dot_vec4(mat: *const [16]f32, vec: *const [4]f32, out: *[4]f32) void {
@@ -222,30 +230,34 @@ export fn mat4_dot_vec4_simd(mat: *const [16]f32, vec: *const [4]f32, out: *[4]f
     out.* = Mat4f.fromArray(mat).dotSIMD(Vec4f.fromArray(vec)).toArray();
 }
 
-fn mat2_dot_mat2(matA: *const [4]f32, matB: *const [4]f32, out: *[4]f32) void {
+export fn mat2_dot_mat2(matA: *const [4]f32, matB: *const [4]f32, out: *[4]f32) void {
     out.* = Mat2f.fromArray(matA).dot(Mat2f.fromArray(matB)).toArray();
 }
 
-fn mat3_dot_mat3(matA: *const [9]f32, matB: *const [9]f32, out: *[9]f32) void {
+export fn mat2_dot_mat2_simd(matA: *const [4]f32, matB: *const [4]f32, out: *[4]f32) void {
+    out.* = Mat2f.fromArray(matA).dotSIMD(Mat2f.fromArray(matB)).toArray();
+}
+
+export fn mat3_dot_mat3(matA: *const [9]f32, matB: *const [9]f32, out: *[9]f32) void {
     out.* = Mat3f.fromArray(matA).dot(Mat3f.fromArray(matB)).toArray();
 }
 
-fn mat3_dot_mat3_simd(matA: *const [9]f32, matB: *const [9]f32, out: *[9]f32) void {
+export fn mat3_dot_mat3_simd(matA: *const [9]f32, matB: *const [9]f32, out: *[9]f32) void {
     out.* = Mat3f.fromArray(matA).dotSIMD(Mat3f.fromArray(matB)).toArray();
 }
 
-fn mat4_dot_mat4(matA: *const [16]f32, matB: *const [16]f32, out: *[16]f32) void {
+export fn mat4_dot_mat4(matA: *const [16]f32, matB: *const [16]f32, out: *[16]f32) void {
     out.* = Mat4f.fromArray(matA).dot(Mat4f.fromArray(matB)).toArray();
 }
 
-fn mat4_dot_mat4_simd(matA: *const [16]f32, matB: *const [16]f32, out: *[16]f32) void {
+export fn mat4_dot_mat4_simd(matA: *const [16]f32, matB: *const [16]f32, out: *[16]f32) void {
     out.* = Mat4f.fromArray(matA).dotSIMD(Mat4f.fromArray(matB)).toArray();
 }
 
-fn mat8_dot_vec8(mat: *const [64]f32, vec: *const [8]f32, out: *[8]f32) void {
+export fn mat8_dot_vec8(mat: *const [64]f32, vec: *const [8]f32, out: *[8]f32) void {
     out.* = MatrixX(f32, 8, 8).fromArray(mat).dot(MatrixX(f32, 8, 1).fromArray(vec)).toArray();
 }
 
-fn mat8_dot_vec8_simd(mat: *const [64]f32, vec: *const [8]f32, out: *[8]f32) void {
+export fn mat8_dot_vec8_simd(mat: *const [64]f32, vec: *const [8]f32, out: *[8]f32) void {
     out.* = MatrixX(f32, 8, 8).fromArray(mat).dotSIMD(MatrixX(f32, 8, 1).fromArray(vec)).toArray();
 }
