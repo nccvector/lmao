@@ -11,12 +11,13 @@ fn storeVN(comptime T: type, comptime N: usize, ptr: [*]T, v: @Vector(N, T)) voi
     inline for (0..N) |i| ptr[i] = tmp[i];
 }
 
-// IMPORTANT: Pass matrix transpose
-pub fn dotRC1(comptime T: type, comptime R: usize, comptime C: usize, a: *const [R * C]T, b: *const [C]T) [C]T {
-    var out: @Vector(C, f32) = @splat(0);
+// IMPORTANT: Pass matrix transpose (transposed RxC matrix is CxR with C rows of R elements each)
+pub fn dotRC1(comptime T: type, comptime R: usize, comptime C: usize, a: *const [R * C]T, b: *const [C]T) [R]T {
+    var out: @Vector(R, T) = @splat(0);
     for (0..C) |i| {
-        const av: @Vector(C, T) = loadVN(T, C, a[0..].ptr + i * C);
-        const vsp: @Vector(C, T) = @splat(b[i]);
+        // Stride: i * C → i * R (each row of transposed CxR matrix has R elements)
+        const av: @Vector(R, T) = loadVN(T, R, a[0..].ptr + i * R);
+        const vsp: @Vector(R, T) = @splat(b[i]);
         out += av * vsp;
     }
     return out;
@@ -113,7 +114,7 @@ pub fn MatrixX(comptime T: type, comptime R: usize, comptime C: usize) type {
             if (comptime K == 1) { // <--------- Benchmark both with and without this opt
                 const a1: [R * C]T = @bitCast(self.transpose().data);
                 const a2: [C * K]T = @bitCast(other.data);
-                return MatrixX(T, C, 1).fromArray(&dotRC1(T, R, C, &a1, &a2));
+                return MatrixX(T, R, 1).fromArray(&dotRC1(T, R, C, &a1, &a2));
             } else {
                 const a1: [R * C]T = @bitCast(self.data);
                 const a2: [C * K]T = @bitCast(other.data);
