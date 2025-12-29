@@ -111,15 +111,20 @@ pub fn MatrixX(comptime T: type, comptime R: usize, comptime C: usize) type {
 
             const K: usize = @TypeOf(other).cols;
 
-            if (comptime K == 1) { // <--------- Benchmark both with and without this opt
-                const a1: [R * C]T = @bitCast(self.transpose().data);
-                const a2: [C * K]T = @bitCast(other.data);
-                return MatrixX(T, R, 1).fromArray(&dotRC1(T, R, C, &a1, &a2));
-            } else {
-                const a1: [R * C]T = @bitCast(self.data);
-                const a2: [C * K]T = @bitCast(other.data);
-                return MatrixX(T, R, K).fromArray(&dotRCK(T, R, C, K, &a1, &a2));
-            }
+            const a1: [R * C]T = @bitCast(self.data);
+            const a2: [C * K]T = @bitCast(other.data);
+            return MatrixX(T, R, K).fromArray(&dotRCK(T, R, C, K, &a1, &a2));
+
+            // FUTURE WORK: Handle K == 1 case transpose using simd.interleave or shuffle instructions...
+            // if (comptime K == 1) { // <--------- Benchmark both with and without this opt
+            //     const a1: [R * C]T = @bitCast(self.transpose().data);
+            //     const a2: [C * K]T = @bitCast(other.data);
+            //     return MatrixX(T, R, 1).fromArray(&dotRC1(T, R, C, &a1, &a2));
+            // } else {
+            //     const a1: [R * C]T = @bitCast(self.data);
+            //     const a2: [C * K]T = @bitCast(other.data);
+            //     return MatrixX(T, R, K).fromArray(&dotRCK(T, R, C, K, &a1, &a2));
+            // }
         }
 
         pub fn dot(self: Self, other: anytype) MatrixX(T, R, @TypeOf(other).cols) {
