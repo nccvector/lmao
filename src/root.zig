@@ -1,3 +1,42 @@
+const simd = @import("simd");
+
+fn loadVN(comptime T: type, comptime N: usize, ptr: [*]const T) @Vector(N, T) {
+    var tmp: [N]f32 = undefined;
+    inline for (0..N) |i| tmp[i] = ptr[i];
+    return @bitCast(tmp);
+}
+
+fn storeVN(comptime T: type, comptime N: usize, ptr: [*]T, v: @Vector(N, T)) void {
+    const tmp: [N]T = @bitCast(v);
+    inline for (0..N) |i| ptr[i] = tmp[i];
+}
+
+// IMPORTANT: Pass matrix transpose
+pub fn dotRC1(comptime T: type, comptime R: usize, comptime C: usize, a: *const [R * C]T, b: *const [C]T) [C]T {
+    var out: @Vector(C, f32) = @splat(0);
+    for (0..C) |i| {
+        const av: @Vector(C, T) = loadVN(T, C, a[0..].ptr + i * C);
+        const vsp: @Vector(C, T) = @splat(b[i]);
+        out += av * vsp;
+    }
+    return out;
+}
+
+pub fn dotRCK(comptime T: type, comptime R: usize, comptime C: usize, comptime K: usize, a: *const [R * C]T, b: *const [C * K]T) [R * K]T {
+    var out: [R * K]T = undefined;
+    for (0..R) |row| {
+        var acc: @Vector(K, T) = @splat(0.0);
+        for (0..C) |col| {
+            const av: @Vector(K, T) = @splat(a[row * C + col]);
+            const bv: @Vector(K, T) = loadVN(T, K, b[0..].ptr + col * K);
+            acc = @mulAdd(@Vector(K, T), av, bv, acc);
+        }
+        storeVN(T, K, out[0..].ptr + row * K, acc);
+    }
+
+    return out;
+}
+
 pub fn MatrixX(comptime T: type, comptime R: usize, comptime C: usize) type {
     comptime {
         if (@typeInfo(T) != .float) @compileError("Matrix type must be a float type (f16/f32/f64/f128).");
@@ -6,7 +45,7 @@ pub fn MatrixX(comptime T: type, comptime R: usize, comptime C: usize) type {
     }
 
     return struct {
-        data: [R * C]T,
+        data: @Vector(R * C, T),
 
         pub const Self = @This();
         pub const rows = R;
@@ -55,6 +94,31 @@ pub fn MatrixX(comptime T: type, comptime R: usize, comptime C: usize) type {
                 }
             }
             return out;
+        }
+
+        pub fn dotSIMD(self: Self, other: anytype) MatrixX(T, R, @TypeOf(other).cols) {
+            comptime {
+                const OT = @TypeOf(other);
+                // Enforce that other has the expected static shape
+                if (!@hasDecl(OT, "rows") or !@hasDecl(OT, "cols"))
+                    @compileError("dot: other must be a MatrixX(...) type");
+                if (OT.rows != C)
+                    @compileError("dot: dimension mismatch: self.cols must equal other.rows");
+                if (OT.ScalarType != T)
+                    @compileError("dot: scalar type mismatch");
+            }
+
+            const K: usize = @TypeOf(other).cols;
+
+            if (comptime K == 1) { // <--------- Benchmark both with and without this opt
+                const a1: [R * C]T = @bitCast(self.transpose().data);
+                const a2: [C * K]T = @bitCast(other.data);
+                return MatrixX(T, C, 1).fromArray(&dotRC1(T, R, C, &a1, &a2));
+            } else {
+                const a1: [R * C]T = @bitCast(self.data);
+                const a2: [C * K]T = @bitCast(other.data);
+                return MatrixX(T, R, K).fromArray(&dotRCK(T, R, C, K, &a1, &a2));
+            }
         }
 
         pub fn dot(self: Self, other: anytype) MatrixX(T, R, @TypeOf(other).cols) {
@@ -153,6 +217,10 @@ export fn mat4_dot_vec4(mat: *const [16]f32, vec: *const [4]f32, out: *[4]f32) v
     out.* = Mat4f.fromArray(mat).dot(Vec4f.fromArray(vec)).toArray();
 }
 
+export fn mat4_dot_vec4_simd(mat: *const [16]f32, vec: *const [4]f32, out: *[4]f32) void {
+    out.* = Mat4f.fromArray(mat).dotSIMD(Vec4f.fromArray(vec)).toArray();
+}
+
 fn mat2_dot_mat2(matA: *const [4]f32, matB: *const [4]f32, out: *[4]f32) void {
     out.* = Mat2f.fromArray(matA).dot(Mat2f.fromArray(matB)).toArray();
 }
@@ -161,6 +229,22 @@ fn mat3_dot_mat3(matA: *const [9]f32, matB: *const [9]f32, out: *[9]f32) void {
     out.* = Mat3f.fromArray(matA).dot(Mat3f.fromArray(matB)).toArray();
 }
 
-export fn mat4_dot_mat4(matA: *const [16]f32, matB: *const [16]f32, out: *[16]f32) void {
+fn mat3_dot_mat3_simd(matA: *const [9]f32, matB: *const [9]f32, out: *[9]f32) void {
+    out.* = Mat3f.fromArray(matA).dotSIMD(Mat3f.fromArray(matB)).toArray();
+}
+
+fn mat4_dot_mat4(matA: *const [16]f32, matB: *const [16]f32, out: *[16]f32) void {
     out.* = Mat4f.fromArray(matA).dot(Mat4f.fromArray(matB)).toArray();
+}
+
+fn mat4_dot_mat4_simd(matA: *const [16]f32, matB: *const [16]f32, out: *[16]f32) void {
+    out.* = Mat4f.fromArray(matA).dotSIMD(Mat4f.fromArray(matB)).toArray();
+}
+
+fn mat8_dot_vec8(mat: *const [64]f32, vec: *const [8]f32, out: *[8]f32) void {
+    out.* = MatrixX(f32, 8, 8).fromArray(mat).dot(MatrixX(f32, 8, 1).fromArray(vec)).toArray();
+}
+
+fn mat8_dot_vec8_simd(mat: *const [64]f32, vec: *const [8]f32, out: *[8]f32) void {
+    out.* = MatrixX(f32, 8, 8).fromArray(mat).dotSIMD(MatrixX(f32, 8, 1).fromArray(vec)).toArray();
 }
