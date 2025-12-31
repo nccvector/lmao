@@ -2,19 +2,58 @@ const std = @import("std");
 const simd = @import("simd");
 const builtin = @import("builtin");
 
-fn loadVN(comptime T: type, comptime N: usize, ptr: [*]const T) @Vector(N, T) {
-    var tmp: [N]T = undefined;
-    inline for (0..N) |i| tmp[i] = ptr[i];
-    return @bitCast(tmp);
+pub inline fn debugPrintVector(
+    comptime T: type,
+    comptime R: usize,
+    comptime C: usize,
+    v: @Vector(R * C, T),
+) void {
+    const a: [R * C]T = v; // safe: vector -> array copy
+
+    for (0..R) |r| {
+        std.debug.print("[", .{});
+        for (0..C) |c| {
+            const x = a[r * C + c];
+
+            // Pick a decent default format for floats vs others
+            if (@typeInfo(T) == .float) {
+                std.debug.print("{d:.6}", .{x});
+            } else {
+                std.debug.print("{any}", .{x});
+            }
+
+            if (c + 1 != C) std.debug.print(", ", .{});
+        }
+        std.debug.print("]\n", .{});
+    }
 }
 
-fn storeVN(comptime T: type, comptime N: usize, ptr: [*]T, v: @Vector(N, T)) void {
-    const tmp: [N]T = @bitCast(v);
-    inline for (0..N) |i| ptr[i] = tmp[i];
+pub inline fn index2d(comptime R: usize, comptime C: usize, i: usize) struct { row: usize, col: usize } {
+    std.debug.assert(i < R * C); // Removed in ReleaseFast
+    return .{
+        .row = i / C,
+        .col = i % C,
+    };
+}
+
+pub inline fn index1d(comptime R: usize, comptime C: usize, row: usize, col: usize) usize {
+    std.debug.assert(row < R); // Removed in ReleaseFast
+    std.debug.assert(col < C); // Removed in ReleaseFast
+    return row * C + col;
+}
+
+pub inline fn vectorFromArray(comptime T: type, comptime N: usize, ptr: *const [N]T) @Vector(N, T) {
+    // Copy load
+    const tmp: [N]T = ptr.*;
+    return tmp;
+}
+
+pub inline fn arrayFromVector(comptime T: type, comptime N: usize, v: @Vector(N, T)) [N]T {
+    return v;
 }
 
 // Helper for fused multiply-add that works with both floats and integers
-inline fn mulAdd(comptime T: type, comptime N: usize, a: @Vector(N, T), b: @Vector(N, T), c: @Vector(N, T)) @Vector(N, T) {
+pub inline fn mulAdd(comptime T: type, comptime N: usize, a: @Vector(N, T), b: @Vector(N, T), c: @Vector(N, T)) @Vector(N, T) {
     if (comptime @typeInfo(T) == .float) {
         return @mulAdd(@Vector(N, T), a, b, c);
     } else {
@@ -34,7 +73,7 @@ inline fn mulAdd(comptime T: type, comptime N: usize, a: @Vector(N, T), b: @Vect
 //     return out;
 // }
 
-pub fn dotRCK(comptime T: type, comptime R: usize, comptime C: usize, comptime K: usize, a: @Vector(R * C, T), b: @Vector(C * K, T)) @Vector(R * K, T) {
+pub inline fn dotRCK(comptime T: type, comptime R: usize, comptime C: usize, comptime K: usize, a: @Vector(R * C, T), b: @Vector(C * K, T)) @Vector(R * K, T) {
     var out: @Vector(R * K, T) = @splat(0);
     inline for (0..R) |row| {
         var acc: @Vector(K, T) = @splat(0);
@@ -54,6 +93,148 @@ pub fn dotRCK(comptime T: type, comptime R: usize, comptime C: usize, comptime K
     return out;
 }
 
+pub inline fn identity(comptime T: type, comptime N: usize) @Vector(N * N, T) {
+    var I: @Vector(N * N, T) = @splat(0);
+    for (0..N) |i| I[i * N + i] = 1;
+    return I;
+}
+
+// TODO: profile and optimize this...(try if shuffle is faster)
+pub inline fn transposeRCCR(comptime T: type, comptime R: usize, comptime C: usize, v: @Vector(R * C, T)) @Vector(C * R, T) {
+    var out: @Vector(C * R, T) = undefined;
+    for (0..R) |r| {
+        for (0..C) |c| {
+            const src = r * C + c;
+            const dst = c * R + r;
+            out[dst] = v[src];
+        }
+    }
+    return out;
+}
+
+pub inline fn splitRows(comptime T: type, comptime R: usize, comptime C: usize, v: @Vector(R * C, T)) [R]@Vector(C, T) {
+    const arr_ptr: *const [R * C]T = @ptrCast(&v);
+    var rows: [R]@Vector(C, T) = undefined;
+    inline for (0..R) |r| {
+        const row_ptr: *const [C]T = arr_ptr.*[r * C ..][0..C];
+        rows[r] = @as(*const @Vector(C, T), @ptrCast(@alignCast(row_ptr))).*;
+    }
+    return rows;
+}
+
+pub inline fn joinRows(comptime T: type, comptime R: usize, comptime C: usize, rows: [R]@Vector(C, T)) @Vector(R * C, T) {
+    var out_arr: [R * C]T = undefined; // view vector storage as array
+
+    // Write rows one by one
+    for (0..R) |r| {
+        const row_arr: [C]T = @bitCast(rows[r]);
+        std.mem.copyForwards(T, out_arr[r * C .. r * C + C], row_arr[0..]);
+    }
+
+    return @bitCast(out_arr);
+}
+
+pub inline fn horzcatInto(
+    comptime T: type,
+    comptime R1: usize,
+    comptime C1: usize,
+    comptime R2: usize,
+    comptime C2: usize,
+    out: *@Vector(R1 * (C1 + C2), T),
+    v1: *const @Vector(R1 * C1, T),
+    v2: *const @Vector(R2 * C2, T),
+) void {
+    comptime {
+        if (R1 != R2) @compileError("v1 and v2 must have same number of rows");
+    }
+
+    @setRuntimeSafety(false);
+
+    const OutLen = R1 * (C1 + C2);
+
+    // View vectors as flat arrays (no copy, just pointer reinterpretation).
+    const out_a: *[OutLen]T = @ptrCast(out);
+    const a1: *const [R1 * C1]T = @ptrCast(v1);
+    const a2: *const [R2 * C2]T = @ptrCast(v2);
+
+    const out_cols = C1 + C2;
+
+    inline for (0..R1) |r| {
+        const o = r * out_cols;
+        const ii1 = r * C1;
+        const ii2 = r * C2;
+
+        // Copy row r from v1 into out
+        @memcpy(out_a[o .. o + C1], a1[ii1 .. ii1 + C1]);
+
+        // Copy row r from v2 into out (right side)
+        @memcpy(out_a[o + C1 .. o + C1 + C2], a2[ii2 .. ii2 + C2]);
+    }
+}
+
+pub inline fn horzcat(
+    comptime T: type,
+    comptime R1: usize,
+    comptime C1: usize,
+    comptime R2: usize,
+    comptime C2: usize,
+    v1: @Vector(R1 * C1, T),
+    v2: @Vector(R2 * C2, T),
+) @Vector(R1 * (C1 + C2), T) {
+    var out: @Vector(R1 * (C1 + C2), T) = undefined;
+    horzcatInto(T, R1, C1, R2, C2, &out, &v1, &v2);
+    return out;
+}
+
+pub inline fn rowEchelonForm(comptime T: type, comptime R: usize, comptime C: usize, v: @Vector(R * C, T)) !@Vector(R * C, T) {
+    comptime {
+        if (R > C) @compileError(std.fmt.comptimePrint("Number of rows must be less than or equal to number of columns (got R={}, C={})", .{ R, C }));
+    }
+
+    // Get rows
+    var sm: [R]@Vector(C, T) = splitRows(T, R, C, v);
+
+    // Loop over diagonals
+    for (0..R) |c| {
+        var pivot: T = sm[c][c]; // Start with current diagonal as pivot
+        var pivot_row: usize = c;
+        // Find best pivot candidate in column values below diagonal
+        for (c..R) |r| {
+            if (r <= c) continue; // skip current row
+            if (@abs(sm[r][c]) > @abs(pivot)) {
+                pivot = sm[r][c];
+                pivot_row = r;
+            }
+        }
+
+        // Check feasibility (non zero pivot check)
+        if (@abs(pivot) < 1e-6) {
+            return error.PivotTooSmall; // no unique solution
+        }
+
+        // Swap selected pivot row with current
+        if (pivot != sm[c][c]) {
+            const tmp = sm[c];
+            sm[c] = sm[pivot_row];
+            sm[pivot_row] = tmp;
+        }
+
+        // sm[c] is not the current active row that contains current pivot
+
+        // Divide current row by current pivot (to make the pivot element 1)
+        sm[c] /= @splat(pivot);
+
+        // Zero all values below current pivot
+        for (c..R) |r| {
+            if (r <= c) continue; // skip current row
+            const bp: @Vector(C, T) = @splat(sm[r][c]);
+            sm[r] -= bp * sm[c];
+        }
+    }
+
+    return joinRows(T, R, C, sm);
+}
+
 pub fn MatrixX(comptime T: type, comptime R: usize, comptime C: usize) type {
     comptime {
         const info = @typeInfo(T);
@@ -71,47 +252,27 @@ pub fn MatrixX(comptime T: type, comptime R: usize, comptime C: usize) type {
         pub const ScalarType = T;
 
         pub fn fromArray(a: *const [R * C]T) Self {
-            return .{ .data = a.* };
+            return .{ .data = vectorFromArray(T, R * C, a) };
         }
 
         pub fn toArray(self: Self) [R * C]T {
-            return self.data;
+            return arrayFromVector(T, R * C, self.data);
         }
 
         pub fn add(self: Self, other: Self) Self {
-            var out: Self = undefined;
-            for (0..(R * C)) |i| {
-                out.data[i] = self.data[i] + other.data[i];
-            }
-            return out;
+            return .{ .data = self.data + other.data };
         }
 
         pub fn sub(self: Self, other: Self) Self {
-            var out: Self = undefined;
-            for (0..(R * C)) |i| {
-                out.data[i] = self.data[i] - other.data[i];
-            }
-            return out;
+            return .{ .data = self.data - other.data };
         }
 
         pub fn multiply(self: Self, other: Self) Self {
-            var out: Self = undefined;
-            for (0..(R * C)) |i| {
-                out.data[i] = self.data[i] * other.data[i];
-            }
-            return out;
+            return .{ .data = self.data * other.data };
         }
 
-        pub fn transpose(self: Self) Self {
-            var out: Self = undefined;
-            for (0..R) |r| {
-                for (0..C) |c| {
-                    const src = r * C + c;
-                    const dst = c * R + r;
-                    out.data[dst] = self.data[src];
-                }
-            }
-            return out;
+        pub fn transpose(self: Self) MatrixX(T, C, R) {
+            return .{ .data = transposeRCCR(T, R, C, self.data) };
         }
 
         pub fn dotSIMD(self: Self, other: anytype) MatrixX(T, R, @TypeOf(other).cols) {
@@ -226,58 +387,58 @@ pub const Mat2f = MatrixX(f32, 2, 2);
 pub const Mat3f = MatrixX(f32, 3, 3);
 pub const Mat4f = MatrixX(f32, 4, 4);
 
-export fn mat2_dot_vec2(mat: *const [4]f32, vec: *const [2]f32, out: *[2]f32) void {
+fn mat2_dot_vec2(mat: *const [4]f32, vec: *const [2]f32, out: *[2]f32) void {
     out.* = Mat2f.fromArray(mat).dot(Vec2f.fromArray(vec)).toArray();
 }
 
-export fn mat2_dot_vec2_simd(mat: *const [4]f32, vec: *const [2]f32, out: *[2]f32) void {
+fn mat2_dot_vec2_simd(mat: *const [4]f32, vec: *const [2]f32, out: *[2]f32) void {
     out.* = Mat2f.fromArray(mat).dotSIMD(Vec2f.fromArray(vec)).toArray();
 }
 
-export fn mat3_dot_vec3(mat: *const [9]f32, vec: *const [3]f32, out: *[3]f32) void {
+fn mat3_dot_vec3(mat: *const [9]f32, vec: *const [3]f32, out: *[3]f32) void {
     out.* = Mat3f.fromArray(mat).dot(Vec3f.fromArray(vec)).toArray();
 }
 
-export fn mat3_dot_vec3_simd(mat: *const [9]f32, vec: *const [3]f32, out: *[3]f32) void {
+fn mat3_dot_vec3_simd(mat: *const [9]f32, vec: *const [3]f32, out: *[3]f32) void {
     out.* = Mat3f.fromArray(mat).dotSIMD(Vec3f.fromArray(vec)).toArray();
 }
 
-export fn mat4_dot_vec4(mat: *const [16]f32, vec: *const [4]f32, out: *[4]f32) void {
+fn mat4_dot_vec4(mat: *const [16]f32, vec: *const [4]f32, out: *[4]f32) void {
     out.* = Mat4f.fromArray(mat).dot(Vec4f.fromArray(vec)).toArray();
 }
 
-export fn mat4_dot_vec4_simd(mat: *const [16]f32, vec: *const [4]f32, out: *[4]f32) void {
+fn mat4_dot_vec4_simd(mat: *const [16]f32, vec: *const [4]f32, out: *[4]f32) void {
     out.* = Mat4f.fromArray(mat).dotSIMD(Vec4f.fromArray(vec)).toArray();
 }
 
-export fn mat2_dot_mat2(matA: *const [4]f32, matB: *const [4]f32, out: *[4]f32) void {
+fn mat2_dot_mat2(matA: *const [4]f32, matB: *const [4]f32, out: *[4]f32) void {
     out.* = Mat2f.fromArray(matA).dot(Mat2f.fromArray(matB)).toArray();
 }
 
-export fn mat2_dot_mat2_simd(matA: *const [4]f32, matB: *const [4]f32, out: *[4]f32) void {
+fn mat2_dot_mat2_simd(matA: *const [4]f32, matB: *const [4]f32, out: *[4]f32) void {
     out.* = Mat2f.fromArray(matA).dotSIMD(Mat2f.fromArray(matB)).toArray();
 }
 
-export fn mat3_dot_mat3(matA: *const [9]f32, matB: *const [9]f32, out: *[9]f32) void {
+fn mat3_dot_mat3(matA: *const [9]f32, matB: *const [9]f32, out: *[9]f32) void {
     out.* = Mat3f.fromArray(matA).dot(Mat3f.fromArray(matB)).toArray();
 }
 
-export fn mat3_dot_mat3_simd(matA: *const [9]f32, matB: *const [9]f32, out: *[9]f32) void {
+fn mat3_dot_mat3_simd(matA: *const [9]f32, matB: *const [9]f32, out: *[9]f32) void {
     out.* = Mat3f.fromArray(matA).dotSIMD(Mat3f.fromArray(matB)).toArray();
 }
 
-export fn mat4_dot_mat4(matA: *const [16]f32, matB: *const [16]f32, out: *[16]f32) void {
+fn mat4_dot_mat4(matA: *const [16]f32, matB: *const [16]f32, out: *[16]f32) void {
     out.* = Mat4f.fromArray(matA).dot(Mat4f.fromArray(matB)).toArray();
 }
 
-export fn mat4_dot_mat4_simd(matA: *const [16]f32, matB: *const [16]f32, out: *[16]f32) void {
+fn mat4_dot_mat4_simd(matA: *const [16]f32, matB: *const [16]f32, out: *[16]f32) void {
     out.* = Mat4f.fromArray(matA).dotSIMD(Mat4f.fromArray(matB)).toArray();
 }
 
-export fn mat8_dot_vec8(mat: *const [64]f32, vec: *const [8]f32, out: *[8]f32) void {
+fn mat8_dot_vec8(mat: *const [64]f32, vec: *const [8]f32, out: *[8]f32) void {
     out.* = MatrixX(f32, 8, 8).fromArray(mat).dot(MatrixX(f32, 8, 1).fromArray(vec)).toArray();
 }
 
-export fn mat8_dot_vec8_simd(mat: *const [64]f32, vec: *const [8]f32, out: *[8]f32) void {
+fn mat8_dot_vec8_simd(mat: *const [64]f32, vec: *const [8]f32, out: *[8]f32) void {
     out.* = MatrixX(f32, 8, 8).fromArray(mat).dotSIMD(MatrixX(f32, 8, 1).fromArray(vec)).toArray();
 }
