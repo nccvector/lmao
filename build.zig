@@ -134,6 +134,7 @@ pub fn build(b: *std.Build) void {
 
     // A run step that will run the second test executable.
     const run_exe_tests = b.addRunArtifact(exe_tests);
+    b.installArtifact(exe_tests);
 
     // A top level step for running all tests. dependOn can be called multiple
     // times and since the two run steps do not depend on one another, this will
