@@ -1,7 +1,9 @@
+const std = @import("std");
 const simd = @import("simd");
+const builtin = @import("builtin");
 
 fn loadVN(comptime T: type, comptime N: usize, ptr: [*]const T) @Vector(N, T) {
-    var tmp: [N]f32 = undefined;
+    var tmp: [N]T = undefined;
     inline for (0..N) |i| tmp[i] = ptr[i];
     return @bitCast(tmp);
 }
@@ -11,28 +13,42 @@ fn storeVN(comptime T: type, comptime N: usize, ptr: [*]T, v: @Vector(N, T)) voi
     inline for (0..N) |i| ptr[i] = tmp[i];
 }
 
-// IMPORTANT: Pass matrix transpose (transposed RxC matrix is CxR with C rows of R elements each)
-pub fn dotRC1(comptime T: type, comptime R: usize, comptime C: usize, a: *const [R * C]T, b: *const [C]T) [R]T {
-    var out: @Vector(R, T) = @splat(0);
-    for (0..C) |i| {
-        // Stride: i * C → i * R (each row of transposed CxR matrix has R elements)
-        const av: @Vector(R, T) = loadVN(T, R, a[0..].ptr + i * R);
-        const vsp: @Vector(R, T) = @splat(b[i]);
-        out = @mulAdd(@Vector(R, T), av, vsp, out);
+// Helper for fused multiply-add that works with both floats and integers
+inline fn mulAdd(comptime T: type, comptime N: usize, a: @Vector(N, T), b: @Vector(N, T), c: @Vector(N, T)) @Vector(N, T) {
+    if (comptime @typeInfo(T) == .float) {
+        return @mulAdd(@Vector(N, T), a, b, c);
+    } else {
+        return a * b + c;
     }
-    return out;
 }
 
-pub fn dotRCK(comptime T: type, comptime R: usize, comptime C: usize, comptime K: usize, a: *const [R * C]T, b: *const [C * K]T) [R * K]T {
-    var out: [R * K]T = undefined;
-    for (0..R) |row| {
-        var acc: @Vector(K, T) = @splat(0.0);
-        for (0..C) |col| {
+// // IMPORTANT: Pass matrix transpose (transposed RxC matrix is CxR with C rows of R elements each)
+// pub fn dotRC1(comptime T: type, comptime R: usize, comptime C: usize, a: @Vector(R * C, T), b: @Vector(C, T)) @Vector(R, T) {
+//     var out: @Vector(R, T) = @splat(0);
+//     for (0..C) |i| {
+//         // Stride: i * C → i * R (each row of transposed CxR matrix has R elements)
+//         const av: @Vector(R, T) = loadVN(T, R, a[0..].ptr + i * R);
+//         const vsp: @Vector(R, T) = @splat(b[i]);
+//         out = mulAdd(T, R, av, vsp, out);
+//     }
+//     return out;
+// }
+
+pub fn dotRCK(comptime T: type, comptime R: usize, comptime C: usize, comptime K: usize, a: @Vector(R * C, T), b: @Vector(C * K, T)) @Vector(R * K, T) {
+    var out: @Vector(R * K, T) = @splat(0);
+    inline for (0..R) |row| {
+        var acc: @Vector(K, T) = @splat(0);
+        inline for (0..C) |col| {
             const av: @Vector(K, T) = @splat(a[row * C + col]);
-            const bv: @Vector(K, T) = loadVN(T, K, b[0..].ptr + col * K);
-            acc = @mulAdd(@Vector(K, T), av, bv, acc);
+
+            comptime var idx: [K]i32 = undefined;
+            inline for (0..K) |i| idx[i] = @intCast(col * K + i);
+            const bv: @Vector(K, T) = @shuffle(T, b, undefined, @as(@Vector(K, i32), idx)); // get row
+            acc = mulAdd(T, K, av, bv, acc);
         }
-        storeVN(T, K, out[0..].ptr + row * K, acc);
+        inline for (0..K) |i| {
+            out[row * K + i] = acc[i];
+        }
     }
 
     return out;
@@ -40,7 +56,8 @@ pub fn dotRCK(comptime T: type, comptime R: usize, comptime C: usize, comptime K
 
 pub fn MatrixX(comptime T: type, comptime R: usize, comptime C: usize) type {
     comptime {
-        if (@typeInfo(T) != .float) @compileError("Matrix type must be a float type (f16/f32/f64/f128).");
+        const info = @typeInfo(T);
+        if (info != .float and info != .int) @compileError("Matrix type must be a numeric type (float or int).");
         if (R == 0) @compileError("Matrix row count must be non-zero.");
         if (C == 0) @compileError("Matrix column count must be non-zero.");
     }
@@ -111,9 +128,7 @@ pub fn MatrixX(comptime T: type, comptime R: usize, comptime C: usize) type {
 
             const K: usize = @TypeOf(other).cols;
 
-            const a1: [R * C]T = @bitCast(self.data);
-            const a2: [C * K]T = @bitCast(other.data);
-            return MatrixX(T, R, K).fromArray(&dotRCK(T, R, C, K, &a1, &a2));
+            return MatrixX(T, R, K).fromArray(&dotRCK(T, R, C, K, self.data, other.data));
 
             // FUTURE WORK: Handle K == 1 case transpose using simd.interleave or shuffle instructions...
             // if (comptime K == 1) { // <--------- Benchmark both with and without this opt
