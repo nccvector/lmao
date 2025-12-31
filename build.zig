@@ -166,6 +166,7 @@ pub fn build(b: *std.Build) void {
 
     // Benchmark executable - ALWAYS ReleaseFast for accurate timing
     const iterations = b.option(u32, "N", "Number of iterations per benchmark (default: 1000000)") orelse 1_000_000;
+    const scalar_type = b.option([]const u8, "T", "Scalar type: f16, f32 (default), f64") orelse "f32";
 
     const bench_exe = b.addExecutable(.{
         .name = "bench",
@@ -181,8 +182,9 @@ pub fn build(b: *std.Build) void {
 
     const run_bench = b.addRunArtifact(bench_exe);
     run_bench.addArg(b.fmt("-N={d}", .{iterations}));
+    run_bench.addArg(b.fmt("-T={s}", .{scalar_type}));
 
-    const bench_step = b.step("bench", "Run benchmarks (use -DN=<num> for iterations, default 1000)");
+    const bench_step = b.step("bench", "Run benchmarks (use -DN=<num> for iterations, -DT=<type> for scalar type)");
     bench_step.dependOn(&run_bench.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
