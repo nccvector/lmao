@@ -186,23 +186,20 @@ pub inline fn horzcat(
     return out;
 }
 
-pub inline fn rowEchelonForm(comptime T: type, comptime R: usize, comptime C: usize, v: @Vector(R * C, T)) !@Vector(R * C, T) {
+pub inline fn rowEchelonForm(comptime T: type, comptime R: usize, comptime C: usize, aug_eqs: *[R]@Vector(C, T)) !void {
     comptime {
         if (R > C) @compileError(std.fmt.comptimePrint("Number of rows must be less than or equal to number of columns (got R={}, C={})", .{ R, C }));
     }
 
-    // Get rows
-    var sm: [R]@Vector(C, T) = splitRows(T, R, C, v);
-
     // Loop over diagonals
     for (0..R) |c| {
-        var pivot: T = sm[c][c]; // Start with current diagonal as pivot
+        var pivot: T = aug_eqs[c][c]; // Start with current diagonal as pivot
         var pivot_row: usize = c;
         // Find best pivot candidate in column values below diagonal
         for (c..R) |r| {
             if (r <= c) continue; // skip current row
-            if (@abs(sm[r][c]) > @abs(pivot)) {
-                pivot = sm[r][c];
+            if (@abs(aug_eqs[r][c]) > @abs(pivot)) {
+                pivot = aug_eqs[r][c];
                 pivot_row = r;
             }
         }
@@ -213,26 +210,50 @@ pub inline fn rowEchelonForm(comptime T: type, comptime R: usize, comptime C: us
         }
 
         // Swap selected pivot row with current
-        if (pivot != sm[c][c]) {
-            const tmp = sm[c];
-            sm[c] = sm[pivot_row];
-            sm[pivot_row] = tmp;
+        if (pivot != aug_eqs[c][c]) {
+            const tmp = aug_eqs[c];
+            aug_eqs[c] = aug_eqs[pivot_row];
+            aug_eqs[pivot_row] = tmp;
         }
 
         // sm[c] is not the current active row that contains current pivot
 
         // Divide current row by current pivot (to make the pivot element 1)
-        sm[c] /= @splat(pivot);
+        aug_eqs[c] /= @splat(pivot);
 
         // Zero all values below current pivot
         for (c..R) |r| {
             if (r <= c) continue; // skip current row
-            const bp: @Vector(C, T) = @splat(sm[r][c]);
-            sm[r] -= bp * sm[c];
+            const bp: @Vector(C, T) = @splat(aug_eqs[r][c]);
+            aug_eqs[r] -= bp * aug_eqs[c];
         }
     }
+}
 
-    return joinRows(T, R, C, sm);
+pub inline fn reducedRowEchelonForm(comptime T: type, comptime R: usize, comptime C: usize, aug_eqs: *[R]@Vector(C, T)) !void {
+    comptime {
+        if (R > C) @compileError(std.fmt.comptimePrint("Number of rows must be less than or equal to number of columns (got R={}, C={})", .{ R, C }));
+    }
+
+    // Compute row echelon form (forward pass)
+    rowEchelonForm(T, R, C, aug_eqs) catch |err| {
+        std.debug.print("rowEchelonForm returned error: {}\n", .{err});
+        return err;
+    };
+
+    // Compute reduced row echelon form (backwards pass)
+    for (0..R) |c| {
+        const r = R - c - 1; // Reverse loop (bottom-up, currently chosen pivot row)
+        if (r <= 0) break; // There is nothing above the first row
+
+        // Forward loop on rows (top to bottom until currently chosen pivot)
+        for (0..r) |row| {
+            // Element of interest
+            const eoi: @Vector(C, T) = @splat(aug_eqs[row][r]);
+            // Eliminate element of interest from current row using the pivots row
+            aug_eqs[row] -= eoi * aug_eqs[r]; // eoi becomes zero
+        }
+    }
 }
 
 pub fn MatrixX(comptime T: type, comptime R: usize, comptime C: usize) type {
