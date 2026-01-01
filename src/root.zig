@@ -216,7 +216,7 @@ pub inline fn rowEchelonForm(comptime T: type, comptime R: usize, comptime C: us
             aug_eqs[pivot_row] = tmp;
         }
 
-        // sm[c] is not the current active row that contains current pivot
+        // sm[c] is now the current active row that contains current pivot
 
         // Divide current row by current pivot (to make the pivot element 1)
         aug_eqs[c] /= @splat(pivot);
@@ -224,8 +224,8 @@ pub inline fn rowEchelonForm(comptime T: type, comptime R: usize, comptime C: us
         // Zero all values below current pivot
         for (c..R) |r| {
             if (r <= c) continue; // skip current row
-            const bp: @Vector(C, T) = @splat(aug_eqs[r][c]);
-            aug_eqs[r] -= bp * aug_eqs[c]; // TODO: Use @mulAdd
+            const bp: @Vector(C, T) = @splat(-aug_eqs[r][c]);
+            aug_eqs[r] = @mulAdd(@Vector(C, T), bp, aug_eqs[c], aug_eqs[r]);
         }
     }
 }
@@ -237,7 +237,6 @@ pub inline fn reducedRowEchelonForm(comptime T: type, comptime R: usize, comptim
 
     // Compute row echelon form (forward pass)
     rowEchelonForm(T, R, C, aug_eqs) catch |err| {
-        std.debug.print("rowEchelonForm returned error: {}\n", .{err});
         return err;
     };
 
@@ -249,9 +248,9 @@ pub inline fn reducedRowEchelonForm(comptime T: type, comptime R: usize, comptim
         // Forward loop on rows (top to bottom until currently chosen pivot)
         for (0..r) |row| {
             // Element of interest
-            const eoi: @Vector(C, T) = @splat(aug_eqs[row][r]);
+            const eoi: @Vector(C, T) = @splat(-aug_eqs[row][r]);
             // Eliminate element of interest from current row using the pivots row
-            aug_eqs[row] -= eoi * aug_eqs[r]; // eoi becomes zero // TODO: Use @mulAdd
+            aug_eqs[row] = @mulAdd(@Vector(C, T), eoi, aug_eqs[r], aug_eqs[row]);
         }
     }
 }
@@ -407,6 +406,26 @@ pub const Vec4f = MatrixX(f32, 4, 1);
 pub const Mat2f = MatrixX(f32, 2, 2);
 pub const Mat3f = MatrixX(f32, 3, 3);
 pub const Mat4f = MatrixX(f32, 4, 4);
+
+fn row_echelon_form(mat: *[18]f32) void {
+    const v: @Vector(18, f32) = vectorFromArray(f32, 18, mat);
+    var rows = splitRows(f32, 3, 6, v);
+    rowEchelonForm(f32, 3, 6, &rows) catch {
+        return;
+    };
+    const o: @Vector(18, f32) = joinRows(f32, 3, 6, rows);
+    mat.* = arrayFromVector(f32, 18, o);
+}
+
+export fn reduced_row_echelon_form(mat: *[18]f32) void {
+    const v: @Vector(18, f32) = vectorFromArray(f32, 18, mat);
+    var rows = splitRows(f32, 3, 6, v);
+    reducedRowEchelonForm(f32, 3, 6, &rows) catch {
+        return;
+    };
+    const o: @Vector(18, f32) = joinRows(f32, 3, 6, rows);
+    mat.* = arrayFromVector(f32, 18, o);
+}
 
 fn mat2_dot_vec2(mat: *const [4]f32, vec: *const [2]f32, out: *[2]f32) void {
     out.* = Mat2f.fromArray(mat).dot(Vec2f.fromArray(vec)).toArray();
