@@ -186,7 +186,7 @@ pub inline fn horzcat(
     return out;
 }
 
-pub inline fn rowEchelonForm(comptime T: type, comptime R: usize, comptime C: usize, aug_eqs: *[R]@Vector(C, T)) !void {
+pub inline fn rowEchelonForm(comptime T: type, comptime R: usize, comptime C: usize, aug_eqs: *[R]@Vector(C, T)) void {
     comptime {
         if (R > C) @compileError(std.fmt.comptimePrint("Number of rows must be less than or equal to number of columns (got R={}, C={})", .{ R, C }));
     }
@@ -206,7 +206,7 @@ pub inline fn rowEchelonForm(comptime T: type, comptime R: usize, comptime C: us
 
         // Check feasibility (non zero pivot check)
         if (@abs(pivot) < 1e-6) {
-            return error.PivotTooSmall; // no unique solution
+            @trap();
         }
 
         // Swap selected pivot row with current
@@ -230,15 +230,13 @@ pub inline fn rowEchelonForm(comptime T: type, comptime R: usize, comptime C: us
     }
 }
 
-pub inline fn reducedRowEchelonForm(comptime T: type, comptime R: usize, comptime C: usize, aug_eqs: *[R]@Vector(C, T)) !void {
+pub inline fn reducedRowEchelonForm(comptime T: type, comptime R: usize, comptime C: usize, aug_eqs: *[R]@Vector(C, T)) void {
     comptime {
         if (R > C) @compileError(std.fmt.comptimePrint("Number of rows must be less than or equal to number of columns (got R={}, C={})", .{ R, C }));
     }
 
     // Compute row echelon form (forward pass)
-    rowEchelonForm(T, R, C, aug_eqs) catch |err| {
-        return err;
-    };
+    rowEchelonForm(T, R, C, aug_eqs);
 
     // Compute reduced row echelon form (backwards pass)
     for (0..R) |c| {
@@ -407,25 +405,25 @@ pub const Mat2f = MatrixX(f32, 2, 2);
 pub const Mat3f = MatrixX(f32, 3, 3);
 pub const Mat4f = MatrixX(f32, 4, 4);
 
-fn row_echelon_form(mat: *[18]f32) void {
-    const v: @Vector(18, f32) = vectorFromArray(f32, 18, mat);
-    var rows = splitRows(f32, 3, 6, v);
-    rowEchelonForm(f32, 3, 6, &rows) catch {
-        return;
-    };
-    const o: @Vector(18, f32) = joinRows(f32, 3, 6, rows);
-    mat.* = arrayFromVector(f32, 18, o);
-}
-
-export fn reduced_row_echelon_form(mat: *[18]f32) void {
-    const v: @Vector(18, f32) = vectorFromArray(f32, 18, mat);
-    var rows = splitRows(f32, 3, 6, v);
-    reducedRowEchelonForm(f32, 3, 6, &rows) catch {
-        return;
-    };
-    const o: @Vector(18, f32) = joinRows(f32, 3, 6, rows);
-    mat.* = arrayFromVector(f32, 18, o);
-}
+// fn row_echelon_form(mat: *[18]f32) void {
+//     const v: @Vector(18, f32) = vectorFromArray(f32, 18, mat);
+//     var rows = splitRows(f32, 3, 6, v);
+//     rowEchelonForm(f32, 3, 6, &rows) catch {
+//         return;
+//     };
+//     const o: @Vector(18, f32) = joinRows(f32, 3, 6, rows);
+//     mat.* = arrayFromVector(f32, 18, o);
+// }
+//
+// export fn reduced_row_echelon_form(mat: *[18]f32) void {
+//     const v: @Vector(18, f32) = vectorFromArray(f32, 18, mat);
+//     var rows = splitRows(f32, 3, 6, v);
+//     reducedRowEchelonForm(f32, 3, 6, &rows) catch {
+//         return;
+//     };
+//     const o: @Vector(18, f32) = joinRows(f32, 3, 6, rows);
+//     mat.* = arrayFromVector(f32, 18, o);
+// }
 
 fn mat2_dot_vec2(mat: *const [4]f32, vec: *const [2]f32, out: *[2]f32) void {
     out.* = Mat2f.fromArray(mat).dot(Vec2f.fromArray(vec)).toArray();
