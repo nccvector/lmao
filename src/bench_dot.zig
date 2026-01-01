@@ -1,29 +1,13 @@
 const std = @import("std");
 const lmao = @import("lmao");
+const common = @import("bench_common.zig");
 
 const MatrixX = lmao.MatrixX;
 
-// Use std.mem.doNotOptimizeAway to prevent DCE
-const doNotOptimizeAway = std.mem.doNotOptimizeAway;
-
-fn print(comptime fmt: []const u8, args: anytype) void {
-    const stdout = std.fs.File.stdout();
-    var buf: [4096]u8 = undefined;
-    const slice = std.fmt.bufPrint(&buf, fmt, args) catch return;
-    _ = stdout.write(slice) catch {};
-}
-
-fn formatTimeBuf(ns: f64, buf: []u8) []const u8 {
-    if (ns < 1_000) {
-        return std.fmt.bufPrint(buf, "{d:.1}ns", .{ns}) catch "?";
-    } else if (ns < 1_000_000) {
-        return std.fmt.bufPrint(buf, "{d:.2}us", .{ns / 1_000.0}) catch "?";
-    } else if (ns < 1_000_000_000) {
-        return std.fmt.bufPrint(buf, "{d:.2}ms", .{ns / 1_000_000.0}) catch "?";
-    } else {
-        return std.fmt.bufPrint(buf, "{d:.2}s", .{ns / 1_000_000_000.0}) catch "?";
-    }
-}
+const print = common.print;
+const formatTimeBuf = common.formatTimeBuf;
+const randomValue = common.randomValue;
+const doNotOptimizeAway = common.doNotOptimizeAway;
 
 fn printRow(name: []const u8, dot_ns: f64, simd_ns: f64) void {
     var dot_buf: [32]u8 = undefined;
@@ -52,28 +36,6 @@ fn printRow(name: []const u8, dot_ns: f64, simd_ns: f64) void {
     };
 
     print(" {s: <40} │ {s: >10} │ {s: >10} │ {s: >10}\n", .{ name, dot_str, simd_str, speedup_str });
-}
-
-/// Generate random values for a given type
-fn randomValue(comptime T: type, rng: std.Random) T {
-    return switch (@typeInfo(T)) {
-        .float => |info| blk: {
-            // std.Random.float doesn't support f16, so use f32 and convert
-            if (info.bits == 16) {
-                break :blk @as(T, @floatCast(rng.float(f32) * 2.0 - 1.0));
-            } else {
-                break :blk rng.float(T) * 2.0 - 1.0;
-            }
-        },
-        .int => |info| blk: {
-            if (info.signedness == .signed) {
-                break :blk @as(T, @intCast(rng.intRangeAtMost(i64, std.math.minInt(T), std.math.maxInt(T))));
-            } else {
-                break :blk rng.int(T);
-            }
-        },
-        else => @compileError("Unsupported type for random generation"),
-    };
 }
 
 /// Generic benchmark for MatrixX(T, R, C).dot(MatrixX(T, C, K))
@@ -152,56 +114,13 @@ fn runBenchmarks(comptime T: type, iterations: usize, rng: std.Random, alloc: st
     print("{s}\n\n", .{"═" ** 78});
 }
 
-const ScalarType = enum {
-    u8,
-    u16,
-    u32,
-    u64,
-    i8,
-    i16,
-    i32,
-    i64,
-    f16,
-    f32,
-    f64,
-
-    fn fromString(s: []const u8) ?ScalarType {
-        const map = std.StaticStringMap(ScalarType).initComptime(.{
-            .{ "u8", .u8 },
-            .{ "u16", .u16 },
-            .{ "u32", .u32 },
-            .{ "u64", .u64 },
-            .{ "i8", .i8 },
-            .{ "i16", .i16 },
-            .{ "i32", .i32 },
-            .{ "i64", .i64 },
-            .{ "f16", .f16 },
-            .{ "f32", .f32 },
-            .{ "f64", .f64 },
-        });
-        return map.get(s);
-    }
-};
-
 pub fn main() !void {
     const args = try std.process.argsAlloc(std.heap.page_allocator);
     defer std.process.argsFree(std.heap.page_allocator, args);
 
-    var iterations: usize = 1_000_000;
-    var scalar_type: ScalarType = .f32;
-
-    for (args) |arg| {
-        if (std.mem.startsWith(u8, arg, "-N=")) {
-            iterations = std.fmt.parseInt(usize, arg[3..], 10) catch 1_000_000;
-        } else if (std.mem.startsWith(u8, arg, "-T=")) {
-            if (ScalarType.fromString(arg[3..])) |t| {
-                scalar_type = t;
-            } else {
-                print("Unknown type: {s}. Supported: u8, u16, u32, u64, i8, i16, i32, i64, f16, f32, f64\n", .{arg[3..]});
-                return;
-            }
-        }
-    }
+    const parsed = common.parseArgs(args);
+    const iterations = parsed.iterations;
+    const scalar_type = parsed.scalar_type;
 
     // Runtime RNG - seed from timestamp so compiler can't know values
     const ts: i128 = std.time.nanoTimestamp();
