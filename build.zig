@@ -165,28 +165,54 @@ pub fn build(b: *std.Build) void {
     const test_fast_step = b.step("test-fast", "Run tests in ReleaseFast mode");
     test_fast_step.dependOn(&run_fast_tests.step);
 
-    // Benchmark executable - ALWAYS ReleaseFast for accurate timing
+    // Benchmark options - ALWAYS ReleaseFast for accurate timing
     const iterations = b.option(u32, "N", "Number of iterations per benchmark (default: 1000000)") orelse 1_000_000;
     const scalar_type = b.option([]const u8, "T", "Scalar type: f16, f32 (default), f64") orelse "f32";
 
-    const bench_exe = b.addExecutable(.{
-        .name = "bench",
+    // Dot product benchmark (bench-dot)
+    const bench_dot_exe = b.addExecutable(.{
+        .name = "bench-dot",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/bench.zig"),
+            .root_source_file = b.path("src/bench_dot.zig"),
             .target = target,
-            .optimize = .ReleaseFast, // ALWAYS ReleaseFast - hardcoded for benchmarks
+            .optimize = .ReleaseFast,
             .imports = &.{
-                .{ .name = "lmao", .module = fast_mod }, // Use ReleaseFast module
+                .{ .name = "lmao", .module = fast_mod },
             },
         }),
     });
 
-    const run_bench = b.addRunArtifact(bench_exe);
-    run_bench.addArg(b.fmt("-N={d}", .{iterations}));
-    run_bench.addArg(b.fmt("-T={s}", .{scalar_type}));
+    const run_bench_dot = b.addRunArtifact(bench_dot_exe);
+    run_bench_dot.addArg(b.fmt("-N={d}", .{iterations}));
+    run_bench_dot.addArg(b.fmt("-T={s}", .{scalar_type}));
 
-    const bench_step = b.step("bench", "Run benchmarks (use -DN=<num> for iterations, -DT=<type> for scalar type)");
-    bench_step.dependOn(&run_bench.step);
+    const bench_dot_step = b.step("bench-dot", "Run dot product benchmarks (use -DN=<num>, -DT=<type>)");
+    bench_dot_step.dependOn(&run_bench_dot.step);
+
+    // Echelon form benchmark (bench-echelon)
+    const bench_echelon_exe = b.addExecutable(.{
+        .name = "bench-echelon",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/bench_echelon.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+            .imports = &.{
+                .{ .name = "lmao", .module = fast_mod },
+            },
+        }),
+    });
+
+    const run_bench_echelon = b.addRunArtifact(bench_echelon_exe);
+    run_bench_echelon.addArg(b.fmt("-N={d}", .{iterations}));
+    run_bench_echelon.addArg(b.fmt("-T={s}", .{scalar_type}));
+
+    const bench_echelon_step = b.step("bench-echelon", "Run echelon form benchmarks (use -DN=<num>, -DT=<type>)");
+    bench_echelon_step.dependOn(&run_bench_echelon.step);
+
+    // Combined bench step runs all benchmarks
+    const bench_step = b.step("bench", "Run all benchmarks (use -DN=<num>, -DT=<type>)");
+    bench_step.dependOn(&run_bench_dot.step);
+    bench_step.dependOn(&run_bench_echelon.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
