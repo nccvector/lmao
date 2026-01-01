@@ -225,7 +225,7 @@ pub inline fn rowEchelonForm(comptime T: type, comptime R: usize, comptime C: us
         for (c..R) |r| {
             if (r <= c) continue; // skip current row
             const bp: @Vector(C, T) = @splat(aug_eqs[r][c]);
-            aug_eqs[r] -= bp * aug_eqs[c];
+            aug_eqs[r] -= bp * aug_eqs[c]; // TODO: Use @mulAdd
         }
     }
 }
@@ -251,7 +251,7 @@ pub inline fn reducedRowEchelonForm(comptime T: type, comptime R: usize, comptim
             // Element of interest
             const eoi: @Vector(C, T) = @splat(aug_eqs[row][r]);
             // Eliminate element of interest from current row using the pivots row
-            aug_eqs[row] -= eoi * aug_eqs[r]; // eoi becomes zero
+            aug_eqs[row] -= eoi * aug_eqs[r]; // eoi becomes zero // TODO: Use @mulAdd
         }
     }
 }
