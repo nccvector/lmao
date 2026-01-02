@@ -480,3 +480,114 @@ fn mat8_dot_vec8(mat: *const [64]f32, vec: *const [8]f32, out: *[8]f32) void {
 fn mat8_dot_vec8_simd(mat: *const [64]f32, vec: *const [8]f32, out: *[8]f32) void {
     out.* = MatrixX(f32, 8, 8).fromArray(mat).dotSIMD(MatrixX(f32, 8, 1).fromArray(vec)).toArray();
 }
+
+/// QR decomposition via Householder reflections.
+/// Decomposes input matrix A (R×C) into Q (R×R orthogonal) and R_out (R×C upper triangular)
+/// such that A = Q * R_out.
+/// Requires floating point type T.
+pub inline fn qrHouseholder(
+    comptime T: type,
+    comptime R: usize,
+    comptime C: usize,
+    A: @Vector(R * C, T),
+    Q: *@Vector(R * R, T),
+    R_out: *@Vector(R * C, T),
+) void {
+    comptime {
+        if (@typeInfo(T) != .float) @compileError("qrHouseholder requires floating point type T");
+        if (R == 0) @compileError("R must be non-zero");
+        if (C == 0) @compileError("C must be non-zero");
+    }
+
+    const eps = std.math.floatEps(T);
+    const K = @min(R, C); // Number of Householder steps
+
+    // Initialize R_out = A
+    R_out.* = A;
+
+    // Initialize Q = I
+    Q.* = identity(T, R);
+
+    // Convert to arrays for easier indexing
+    var r_arr: *[R * C]T = @ptrCast(R_out);
+    var q_arr: *[R * R]T = @ptrCast(Q);
+
+    // Householder vector buffer (only indices k..R-1 are used)
+    var v: [R]T = undefined;
+
+    // For each column k
+    for (0..K) |k| {
+        // Step 3: Form the Householder vector from column k, rows k..R-1
+
+        // Compute norm of x = R[k:R-1, k]
+        var norm_x_sq: T = 0;
+        for (k..R) |i| {
+            const val = r_arr[i * C + k];
+            norm_x_sq += val * val;
+        }
+        const norm_x = @sqrt(norm_x_sq);
+
+        // Skip if norm is too small (nothing to eliminate)
+        if (norm_x < eps) continue;
+
+        // x0 = R[k, k]
+        const x0 = r_arr[k * C + k];
+
+        // alpha = -sign(x0) * norm_x
+        const sign_x0: T = if (x0 < 0) -1 else 1;
+        const alpha = -sign_x0 * norm_x;
+
+        // Build v: v[i] = x[i] for i in k..R-1, then v[k] -= alpha
+        for (k..R) |i| {
+            v[i] = r_arr[i * C + k];
+        }
+        v[k] -= alpha;
+
+        // Compute v^T v
+        var vtv: T = 0;
+        for (k..R) |i| {
+            vtv += v[i] * v[i];
+        }
+
+        // Skip if v^T v is too small
+        if (vtv < eps) continue;
+
+        // beta = 2 / (v^T v)
+        const beta = 2 / vtv;
+
+        // Step 4: Apply reflector to R_out (left-multiply): R = H * R
+        // For columns j in k..C-1
+        for (k..C) |j| {
+            // dot = v^T * R[k:R-1, j]
+            var dot: T = 0;
+            for (k..R) |i| {
+                dot += v[i] * r_arr[i * C + j];
+            }
+            const tau = beta * dot;
+            // R[k:R-1, j] -= tau * v
+            for (k..R) |i| {
+                r_arr[i * C + j] -= tau * v[i];
+            }
+        }
+
+        // Step 5: Accumulate Q (right-multiply): Q = Q * H
+        // For each row i in 0..R-1
+        for (0..R) |i| {
+            // dot = Q[i, k:R-1] * v[k:R-1]
+            var dot: T = 0;
+            for (k..R) |j| {
+                dot += q_arr[i * R + j] * v[j];
+            }
+            const tau = beta * dot;
+            // Q[i, k:R-1] -= tau * v
+            for (k..R) |j| {
+                q_arr[i * R + j] -= tau * v[j];
+            }
+        }
+
+        // Step 6: Clean up numerical artifacts - force subdiagonal to zero in column k
+        for (k + 1..R) |i| {
+            r_arr[i * C + k] = 0;
+        }
+    }
+}
