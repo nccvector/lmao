@@ -209,10 +209,31 @@ pub fn build(b: *std.Build) void {
     const bench_echelon_step = b.step("bench-echelon", "Run echelon form benchmarks (use -DN=<num>, -DT=<type>)");
     bench_echelon_step.dependOn(&run_bench_echelon.step);
 
+    // QR decomposition benchmark (bench-qr)
+    const bench_qr_exe = b.addExecutable(.{
+        .name = "bench-qr",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/bench_qr.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+            .imports = &.{
+                .{ .name = "lmao", .module = fast_mod },
+            },
+        }),
+    });
+
+    const run_bench_qr = b.addRunArtifact(bench_qr_exe);
+    run_bench_qr.addArg(b.fmt("-N={d}", .{iterations}));
+    run_bench_qr.addArg(b.fmt("-T={s}", .{scalar_type}));
+
+    const bench_qr_step = b.step("bench-qr", "Run QR decomposition benchmarks (use -DN=<num>, -DT=<type>)");
+    bench_qr_step.dependOn(&run_bench_qr.step);
+
     // Combined bench step runs all benchmarks
     const bench_step = b.step("bench", "Run all benchmarks (use -DN=<num>, -DT=<type>)");
     bench_step.dependOn(&run_bench_dot.step);
     bench_step.dependOn(&run_bench_echelon.step);
+    bench_step.dependOn(&run_bench_qr.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
