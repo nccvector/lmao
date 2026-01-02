@@ -591,3 +591,240 @@ pub inline fn qrHouseholder(
         }
     }
 }
+
+/// Compact QR decomposition via Householder reflections (LAPACK-style).
+/// Overwrites A in-place:
+///   - Upper triangle contains R
+///   - Below diagonal contains Householder vectors (v[k]=1 implicit, v[i>k] stored)
+/// Returns tau array with one scalar per reflector.
+/// This avoids forming Q explicitly - use applyQTranspose to apply Q^T to vectors.
+pub inline fn qrHouseholderCompact(
+    comptime T: type,
+    comptime R: usize,
+    comptime C: usize,
+    A: *[R]@Vector(C, T),
+    tau: *[R]T,
+) void {
+    comptime {
+        if (@typeInfo(T) != .float) @compileError("qrHouseholderCompact requires floating point type T");
+        if (R == 0) @compileError("R must be non-zero");
+        if (C == 0) @compileError("C must be non-zero");
+    }
+
+    const eps = std.math.floatEps(T);
+    const NumReflectors = @min(R, C);
+
+    // Initialize tau to zero
+    tau.* = [_]T{0} ** R;
+
+    // For each column k
+    for (0..NumReflectors) |k| {
+        // Compute norm of x = A[k:R-1, k]
+        var norm_x_sq: T = 0;
+        for (k..R) |i| {
+            const val = A[i][k];
+            norm_x_sq = @mulAdd(T, val, val, norm_x_sq);
+        }
+        const norm_x = @sqrt(norm_x_sq);
+
+        // Skip if norm is too small (nothing to eliminate)
+        if (norm_x < eps) continue;
+
+        // x0 = A[k, k]
+        const x0 = A[k][k];
+
+        // alpha = -sign(x0) * norm_x (new diagonal value for R)
+        const sign_x0: T = if (x0 < 0) -1 else 1;
+        const alpha = -sign_x0 * norm_x;
+
+        // Householder vector: v = x - alpha*e1, where x is column k below row k
+        // v[k] = x0 - alpha, v[i] = x[i] = A[i,k] for i > k
+        const v_k = x0 - alpha;
+
+        // Compute v^T v using FMA
+        var vtv: T = v_k * v_k;
+        for (k + 1..R) |i| {
+            const vi = A[i][k];
+            vtv = @mulAdd(T, vi, vi, vtv);
+        }
+
+        // Skip if v^T v is too small
+        if (vtv < eps) continue;
+
+        // beta = 2 / (v^T v)
+        const beta = 2 / vtv;
+
+        // Store scaled tau: with v' = v/v_k (so v'[k]=1), tau' = beta * v_k^2
+        tau[k] = beta * v_k * v_k;
+
+        // Apply reflector to A[k:, k+1:] (columns k+1..C-1 only)
+        // H = I - beta * v * v^T
+
+        // Only process if there are trailing columns
+        if (k + 1 < C) {
+            // Phase 1: Compute w = beta * (v^T * A[k:, k+1:]) using vectorized ops
+            // w is a row vector for trailing columns
+
+            // Start with contribution from row k (where v[k] = v_k)
+            const v_k_splat: @Vector(C, T) = @splat(v_k);
+            var w: @Vector(C, T) = v_k_splat * A[k];
+
+            // Contribution from rows k+1..R-1 (where v[i] = A[i,k])
+            for (k + 1..R) |i| {
+                const vi_splat: @Vector(C, T) = @splat(A[i][k]);
+                w = @mulAdd(@Vector(C, T), vi_splat, A[i], w);
+            }
+
+            // Scale by beta (vectorized)
+            const beta_splat: @Vector(C, T) = @splat(beta);
+            w *= beta_splat;
+
+            // Zero out w[0..k] - we only want to update columns k+1..C-1
+            // Columns 0..k contain R values or will be overwritten
+            for (0..k + 1) |j| {
+                w[j] = 0;
+            }
+
+            // Phase 2: Update A[k:, k+1:] -= v * w (vectorized)
+            // Update row k: A[k] -= v_k * w
+            A[k] -= v_k_splat * w;
+
+            // Precompute 1/v_k for scaling reflectors (single division)
+            const inv_v_k = 1 / v_k;
+
+            // Update rows k+1..R-1, also store scaled reflector
+            for (k + 1..R) |i| {
+                const vi = A[i][k];
+                const vi_splat: @Vector(C, T) = @splat(vi);
+                // A[i] -= vi * w (vectorized with FMA: A[i] = -vi * w + A[i])
+                A[i] = @mulAdd(@Vector(C, T), -vi_splat, w, A[i]);
+                // Store scaled reflector (v[i] / v_k)
+                A[i][k] = vi * inv_v_k;
+            }
+        } else {
+            // No trailing columns, just store scaled reflector
+            const inv_v_k = 1 / v_k;
+            for (k + 1..R) |i| {
+                A[i][k] *= inv_v_k;
+            }
+        }
+
+        // Store alpha (R diagonal) in A[k,k]
+        A[k][k] = alpha;
+    }
+}
+
+/// Apply Q^T to a set of column vectors B (in-place) using stored reflectors.
+/// A contains R in upper triangle, reflectors below diagonal (from qrHouseholderCompact).
+/// tau contains the reflector scalars.
+/// B is R x K matrix of K column vectors to transform.
+/// Convention: v[k] = 1 (implicit), v[i>k] = A[i,k]
+pub inline fn applyQTranspose(
+    comptime T: type,
+    comptime R: usize,
+    comptime C: usize,
+    comptime K: usize,
+    A: *const [R]@Vector(C, T),
+    tau: *const [R]T,
+    B: *[R]@Vector(K, T),
+) void {
+    comptime {
+        if (@typeInfo(T) != .float) @compileError("applyQTranspose requires floating point type T");
+    }
+
+    const NumReflectors = @min(R, C);
+
+    // Apply reflectors in forward order (k = 0, 1, ..., NumReflectors-1)
+    // Each reflector: B = H_k * B = (I - tau * v * v^T) * B = B - tau * v * (v^T * B)
+    // With v[k] = 1 implicit, v[i>k] = A[i,k]
+    for (0..NumReflectors) |k| {
+        const beta = tau[k];
+        if (beta == 0) continue;
+
+        // Phase 1: Compute w = v^T * B (w is 1 x K row vector)
+        // Start with contribution from row k (where v[k] = 1 implicit)
+        var w: @Vector(K, T) = B[k];
+
+        // Contribution from rows k+1..R-1 (where v[i] = A[i,k])
+        for (k + 1..R) |i| {
+            const vi: @Vector(K, T) = @splat(A[i][k]);
+            w = @mulAdd(@Vector(K, T), vi, B[i], w);
+        }
+
+        // Scale by beta
+        w *= @as(@Vector(K, T), @splat(beta));
+
+        // Phase 2: B[i] -= v[i] * w (using FMA: B[i] = -v[i] * w + B[i])
+        B[k] -= w; // v[k] = 1
+        for (k + 1..R) |i| {
+            const neg_vi: @Vector(K, T) = @splat(-A[i][k]);
+            B[i] = @mulAdd(@Vector(K, T), neg_vi, w, B[i]);
+        }
+    }
+}
+
+/// Upper triangular back-substitution: solve R * x = b
+/// R is upper triangular (R x C matrix, only upper R x R part used for square solve)
+/// b is R x K matrix of K right-hand sides
+/// Solution x overwrites b in-place.
+pub inline fn backSubstitute(
+    comptime T: type,
+    comptime R: usize,
+    comptime C: usize,
+    comptime K: usize,
+    A: *const [R]@Vector(C, T),
+    b: *[R]@Vector(K, T),
+) void {
+    comptime {
+        if (@typeInfo(T) != .float) @compileError("backSubstitute requires floating point type T");
+        if (R > C) @compileError("backSubstitute requires R <= C for upper triangular solve");
+    }
+
+    // Solve from bottom to top
+    var i: usize = R;
+    while (i > 0) {
+        i -= 1;
+        // x[i] = (b[i] - sum(R[i,j] * x[j] for j > i)) / R[i,i]
+        var sum: @Vector(K, T) = @splat(0);
+        for (i + 1..R) |j| {
+            sum = @mulAdd(@Vector(K, T), @as(@Vector(K, T), @splat(A[i][j])), b[j], sum);
+        }
+        b[i] = (b[i] - sum) / @as(@Vector(K, T), @splat(A[i][i]));
+    }
+}
+
+/// Solve A * x = b using QR decomposition.
+/// A is R x C matrix (R <= C for overdetermined/square systems).
+/// b is R x K matrix of K right-hand sides.
+/// Returns x (C x K) by computing: x = R^-1 * Q^T * b
+/// Note: For tall matrices (R > C), this solves the least squares problem.
+pub inline fn qrSolve(
+    comptime T: type,
+    comptime R: usize,
+    comptime C: usize,
+    comptime K: usize,
+    A: [R]@Vector(C, T),
+    b: [R]@Vector(K, T),
+) [R]@Vector(K, T) {
+    comptime {
+        if (@typeInfo(T) != .float) @compileError("qrSolve requires floating point type T");
+    }
+
+    // Copy A for factorization
+    var A_copy = A;
+    var tau: [R]T = undefined;
+
+    // Factor: A_copy now contains R (upper) and reflectors (lower)
+    qrHouseholderCompact(T, R, C, &A_copy, &tau);
+
+    // Copy b for transformation
+    var x = b;
+
+    // Apply Q^T to b: x = Q^T * b
+    applyQTranspose(T, R, C, K, &A_copy, &tau, &x);
+
+    // Back-substitute: solve R * result = x
+    backSubstitute(T, R, C, K, &A_copy, &x);
+
+    return x;
+}

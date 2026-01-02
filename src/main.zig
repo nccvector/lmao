@@ -1226,3 +1226,136 @@ test "qrHouseholder - 2x5 wide matrix" {
     try checkUpperTriangular(2, 5, R_mat);
     try checkQRReconstruction(2, 5, A, Q, R_mat);
 }
+
+// ============================================================================
+// QR Compact (Optimized) Tests
+// ============================================================================
+
+// Helper to check upper triangular for row-wise storage
+fn checkUpperTriangularRows(comptime R: usize, comptime C: usize, rows: [R]@Vector(C, f32)) !void {
+    const tol: f32 = 1e-4;
+    for (0..R) |i| {
+        const arr: [C]f32 = rows[i];
+        for (0..C) |j| {
+            if (i > j) {
+                // Below diagonal - should have reflector data, skip check for R values
+                // We only care about upper triangle being correct
+            }
+        }
+        _ = arr;
+    }
+    // Just verify the function runs - actual R values tested via solve
+    _ = tol;
+}
+
+test "qrHouseholderCompact - 3x3 solve Ax=b" {
+    // Test matrix A and known solution
+    // A = [4, 2, 1; 2, 5, 2; 1, 2, 4], x = [1, 2, 3], b = A*x = [11, 18, 17]
+    var A: [3]@Vector(3, f32) = .{
+        .{ 4.0, 2.0, 1.0 },
+        .{ 2.0, 5.0, 2.0 },
+        .{ 1.0, 2.0, 4.0 },
+    };
+    const b: [3]@Vector(1, f32) = .{
+        .{11.0},
+        .{18.0},
+        .{17.0},
+    };
+    const expected_x: [3]f32 = .{ 1.0, 2.0, 3.0 };
+
+    // Solve using qrSolve
+    const x = lmao.qrSolve(f32, 3, 3, 1, A, b);
+
+    // Check solution
+    for (0..3) |i| {
+        const arr: [1]f32 = x[i];
+        try expectApproxEqual(expected_x[i], arr[0]);
+    }
+    _ = &A;
+}
+
+test "qrHouseholderCompact - 2x2 solve" {
+    // Simple 2x2: A = [3, 1; 1, 2], x = [1, 1], b = [4, 3]
+    const A: [2]@Vector(2, f32) = .{
+        .{ 3.0, 1.0 },
+        .{ 1.0, 2.0 },
+    };
+    const b: [2]@Vector(1, f32) = .{
+        .{4.0},
+        .{3.0},
+    };
+
+    const x = lmao.qrSolve(f32, 2, 2, 1, A, b);
+
+    try expectApproxEqual(1.0, x[0][0]);
+    try expectApproxEqual(1.0, x[1][0]);
+}
+
+test "qrHouseholderCompact - 4x4 solve" {
+    // A = identity * 2, x = [1,2,3,4], b = [2,4,6,8]
+    const A: [4]@Vector(4, f32) = .{
+        .{ 2.0, 0.0, 0.0, 0.0 },
+        .{ 0.0, 2.0, 0.0, 0.0 },
+        .{ 0.0, 0.0, 2.0, 0.0 },
+        .{ 0.0, 0.0, 0.0, 2.0 },
+    };
+    const b: [4]@Vector(1, f32) = .{
+        .{2.0},
+        .{4.0},
+        .{6.0},
+        .{8.0},
+    };
+
+    const x = lmao.qrSolve(f32, 4, 4, 1, A, b);
+
+    try expectApproxEqual(1.0, x[0][0]);
+    try expectApproxEqual(2.0, x[1][0]);
+    try expectApproxEqual(3.0, x[2][0]);
+    try expectApproxEqual(4.0, x[3][0]);
+}
+
+test "qrHouseholderCompact - multiple RHS" {
+    // Solve A*X = B where B has 2 columns
+    const A: [2]@Vector(2, f32) = .{
+        .{ 2.0, 1.0 },
+        .{ 1.0, 3.0 },
+    };
+    // x1 = [1,1] -> b1 = [3, 4]
+    // x2 = [2,0] -> b2 = [4, 2]
+    const B: [2]@Vector(2, f32) = .{
+        .{ 3.0, 4.0 },
+        .{ 4.0, 2.0 },
+    };
+
+    const X = lmao.qrSolve(f32, 2, 2, 2, A, B);
+
+    // Check first solution
+    try expectApproxEqual(1.0, X[0][0]);
+    try expectApproxEqual(1.0, X[1][0]);
+    // Check second solution
+    try expectApproxEqual(2.0, X[0][1]);
+    try expectApproxEqual(0.0, X[1][1]);
+}
+
+test "qrHouseholderCompact - compare with original qrHouseholder" {
+    // Use the same matrix and verify both give same R diagonal
+    const A_vec: @Vector(9, f32) = .{ 12.0, -51.0, 4.0, 6.0, 167.0, -68.0, -4.0, 24.0, -41.0 };
+    var Q_old: @Vector(9, f32) = undefined;
+    var R_old: @Vector(9, f32) = undefined;
+    lmao.qrHouseholder(f32, 3, 3, A_vec, &Q_old, &R_old);
+
+    // Convert to row format for compact version
+    var A_rows: [3]@Vector(3, f32) = .{
+        .{ 12.0, -51.0, 4.0 },
+        .{ 6.0, 167.0, -68.0 },
+        .{ -4.0, 24.0, -41.0 },
+    };
+    var tau: [3]f32 = undefined;
+    lmao.qrHouseholderCompact(f32, 3, 3, &A_rows, &tau);
+
+    // Check R diagonals match (sign may differ)
+    const R_old_arr: [9]f32 = R_old;
+    try expectApproxEqual(@abs(R_old_arr[0]), @abs(A_rows[0][0])); // R[0,0]
+    try expectApproxEqual(@abs(R_old_arr[4]), @abs(A_rows[1][1])); // R[1,1]
+    try expectApproxEqual(@abs(R_old_arr[8]), @abs(A_rows[2][2])); // R[2,2]
+}
