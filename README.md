@@ -12,6 +12,64 @@ A fast Zig linear algebra library with SIMD-optimized matrix operations using `@
 - **Compile-time** matrix dimensions with zero runtime overhead
 - Support for `f16`, `f32`, `f64` and integer types
 
+## Installation
+
+Add lmao as a dependency to your project:
+
+```bash
+zig fetch --save git+https://github.com/nccvector/lmao
+```
+
+Then in your `build.zig`, add the dependency and module:
+
+```zig
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    // Add lmao dependency
+    const lmao = b.dependency("lmao", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const exe = b.addExecutable(.{
+        .name = "my-app",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "lmao", .module = lmao.module("lmao") },
+            },
+        }),
+    });
+
+    b.installArtifact(exe);
+}
+```
+
+Now you can import and use the library:
+
+```zig
+const lmao = @import("lmao");
+
+const Mat3f = lmao.Mat3f;
+const Vec3f = lmao.Vec3f;
+
+pub fn main() void {
+    const matrix = Mat3f.fromArray(&.{
+        1.0, 2.0, 3.0,
+        4.0, 5.0, 6.0,
+        7.0, 8.0, 9.0,
+    });
+    const vector = Vec3f.fromArray(&.{ 1.0, 2.0, 3.0 });
+
+    const result = matrix.dotSIMD(vector);
+    // result = [14.0, 32.0, 50.0]
+}
+```
+
 ## Benchmarks
 
 Average of 5 runs with 10,000,000 iterations each (ReleaseFast, Apple Silicon M4):
