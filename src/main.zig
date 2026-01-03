@@ -12,34 +12,6 @@ pub fn main() !void {
     std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
 }
 
-test "rowEchelonForm" {
-    const m: @Vector(18, f32) = .{
-        1, 2, 3, 1, 0, 0,
-        2, 5, 2, 0, 1, 0,
-        3, 2, 9, 0, 0, 1,
-    };
-    std.debug.print("\n Input:\n", .{});
-    lmao.debugPrintVector(f32, 3, 6, m);
-    var m_rows = lmao.splitRows(f32, 3, 6, m);
-    lmao.rowEchelonForm(f32, 3, 6, &m_rows);
-    std.debug.print("\n Output:\n", .{});
-    lmao.debugPrintVector(f32, 3, 6, lmao.joinRows(f32, 3, 6, m_rows));
-}
-
-test "reducedRowEchelonForm" {
-    const m: @Vector(18, f32) = .{
-        1, 2, 3, 1, 0, 0,
-        2, 5, 2, 0, 1, 0,
-        3, 2, 9, 0, 0, 1,
-    };
-    std.debug.print("\n Input:\n", .{});
-    lmao.debugPrintVector(f32, 3, 6, m);
-    var m_rows = lmao.splitRows(f32, 3, 6, m);
-    lmao.reducedRowEchelonForm(f32, 3, 6, &m_rows);
-    std.debug.print("\n Output:\n", .{});
-    lmao.debugPrintVector(f32, 3, 6, lmao.joinRows(f32, 3, 6, m_rows));
-}
-
 // ============================================================================
 // Vec2f Tests
 // ============================================================================
@@ -491,12 +463,12 @@ test "Mat4f dotSIMD Vec4f - random values" {
 // Rectangular Matrix-Vector Products (dot and dotSIMD)
 // ----------------------------------------------------------------------------
 
-const Mat2x3f = lmao.MatrixX(f32, 2, 3);
-const Mat2x4f = lmao.MatrixX(f32, 2, 4);
-const Mat3x2f = lmao.MatrixX(f32, 3, 2);
-const Mat3x4f = lmao.MatrixX(f32, 3, 4);
-const Mat4x2f = lmao.MatrixX(f32, 4, 2);
-const Mat4x3f = lmao.MatrixX(f32, 4, 3);
+const Mat2x3f = lmao.Matrix(f32, 2, 3);
+const Mat2x4f = lmao.Matrix(f32, 2, 4);
+const Mat3x2f = lmao.Matrix(f32, 3, 2);
+const Mat3x4f = lmao.Matrix(f32, 3, 4);
+const Mat4x2f = lmao.Matrix(f32, 4, 2);
+const Mat4x3f = lmao.Matrix(f32, 4, 3);
 
 test "Mat2x3 dot Vec3 -> Vec2" {
     const m = Mat2x3f.fromArray(&.{ 3.684660, -1.196950, -7.559235, -0.096462, -9.312229, 8.186408 });

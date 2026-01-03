@@ -2,7 +2,7 @@ const std = @import("std");
 const lmao = @import("lmao");
 const common = @import("bench_common.zig");
 
-const MatrixX = lmao.MatrixX;
+const Matrix = lmao.Matrix;
 
 const print = common.print;
 const formatTimeBuf = common.formatTimeBuf;
@@ -38,7 +38,7 @@ fn printRow(name: []const u8, dot_ns: f64, simd_ns: f64) void {
     print(" {s: <40} │ {s: >10} │ {s: >10} │ {s: >10}\n", .{ name, dot_str, simd_str, speedup_str });
 }
 
-/// Generic benchmark for MatrixX(T, R, C).dot(MatrixX(T, C, K))
+/// Generic benchmark for Matrix(T, R, C).dot(Matrix(T, C, K))
 fn benchmarkDot(
     comptime T: type,
     comptime R: usize,
@@ -49,8 +49,8 @@ fn benchmarkDot(
     rng: std.Random,
     alloc: std.mem.Allocator,
 ) !void {
-    const MatA = MatrixX(T, R, C);
-    const MatB = MatrixX(T, C, K);
+    const MatA = Matrix(T, R, C);
+    const MatB = Matrix(T, C, K);
 
     const matsA = try alloc.alloc([R * C]T, iterations);
     defer alloc.free(matsA);

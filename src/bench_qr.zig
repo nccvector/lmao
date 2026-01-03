@@ -34,7 +34,6 @@ fn generateRandomMatrix(
     }
 }
 
-
 /// Benchmark comparison: old qrHouseholder vs new qrHouseholderCompact
 fn benchmarkQRCompare(
     comptime T: type,
