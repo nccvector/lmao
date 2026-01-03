@@ -727,8 +727,150 @@ pub fn Matrix(comptime T: type, comptime R: usize, comptime C: usize) type {
             comptime if (!(isVec() and R == 4)) @compileError("w only for vec4");
             return self.data[3];
         }
+
+        // ========================================================================
+        // Linear Algebra Methods
+        // ========================================================================
+
+        /// Creates an identity matrix. Only available for square matrices.
+        /// Returns a Matrix with 1s on the diagonal and 0s elsewhere.
+        pub fn identity() Self {
+            comptime {
+                if (R != C) @compileError("identity() is only available for square matrices (R == C)");
+            }
+            return .{ .data = lmao_identity(T, R) };
+        }
+
+        /// Computes the row echelon form of the matrix using Gaussian elimination.
+        /// Returns a new matrix in row echelon form with leading 1s.
+        /// Requires floating point type.
+        pub fn rowEchelonForm(self: Self) Self {
+            comptime {
+                if (@typeInfo(T) != .float) @compileError("rowEchelonForm requires floating point type");
+            }
+            // Convert to row format safely through array copy
+            var row_data: [R]@Vector(C, T) = undefined;
+            const arr: [R * C]T = self.data;
+            inline for (0..R) |r| {
+                row_data[r] = arr[r * C ..][0..C].*;
+            }
+            lmao_rowEchelonForm(T, R, C, &row_data);
+            return .{ .data = joinRows(T, R, C, row_data) };
+        }
+
+        /// Computes the reduced row echelon form of the matrix using Gauss-Jordan elimination.
+        /// Returns a new matrix in reduced row echelon form.
+        /// Requires floating point type.
+        pub fn reducedRowEchelonForm(self: Self) Self {
+            comptime {
+                if (@typeInfo(T) != .float) @compileError("reducedRowEchelonForm requires floating point type");
+            }
+            // Convert to row format safely through array copy
+            var row_data: [R]@Vector(C, T) = undefined;
+            const arr: [R * C]T = self.data;
+            inline for (0..R) |r| {
+                row_data[r] = arr[r * C ..][0..C].*;
+            }
+            lmao_reducedRowEchelonForm(T, R, C, &row_data);
+            return .{ .data = joinRows(T, R, C, row_data) };
+        }
+
+        /// Result type for QR decomposition
+        pub const QRResult = struct {
+            Q: Matrix(T, R, R),
+            R_mat: Self,
+        };
+
+        /// Computes QR decomposition using Householder reflections.
+        /// Returns Q (RxR orthogonal matrix) and R (RxC upper triangular matrix)
+        /// such that A = Q * R.
+        /// Requires floating point type.
+        pub fn qrDecompose(self: Self) QRResult {
+            comptime {
+                if (@typeInfo(T) != .float) @compileError("qrDecompose requires floating point type");
+            }
+            var Q: @Vector(R * R, T) = undefined;
+            var R_out: @Vector(R * C, T) = undefined;
+            qrHouseholder(T, R, C, self.data, &Q, &R_out);
+            return .{
+                .Q = .{ .data = Q },
+                .R_mat = .{ .data = R_out },
+            };
+        }
+
+        /// Solves the linear system Ax = b using QR decomposition.
+        /// self is the matrix A, b is a column vector (Rx1 matrix).
+        /// Returns the solution vector x.
+        /// Requires floating point type and R == C (square matrix).
+        pub fn solve(self: Self, b: Matrix(T, R, 1)) Matrix(T, R, 1) {
+            comptime {
+                if (@typeInfo(T) != .float) @compileError("solve requires floating point type");
+                if (R > C) @compileError("solve requires R <= C (square or wide matrix)");
+            }
+            // Convert to row format safely through array copy
+            var A_rows: [R]@Vector(C, T) = undefined;
+            const A_arr: [R * C]T = self.data;
+            inline for (0..R) |r| {
+                A_rows[r] = A_arr[r * C ..][0..C].*;
+            }
+            var b_rows: [R]@Vector(1, T) = undefined;
+            const b_arr: [R]T = b.data;
+            inline for (0..R) |r| {
+                b_rows[r] = .{b_arr[r]};
+            }
+
+            const x_rows = qrSolve(T, R, C, 1, A_rows, b_rows);
+            return .{ .data = joinRows(T, R, 1, x_rows) };
+        }
+
+        /// Solves the linear system AX = B using QR decomposition for multiple right-hand sides.
+        /// self is the matrix A (RxC), B is a matrix of K column vectors (RxK matrix).
+        /// Returns the solution matrix X (RxK).
+        /// Requires floating point type and R <= C.
+        pub fn solveMulti(self: Self, comptime K: usize, B: Matrix(T, R, K)) Matrix(T, R, K) {
+            comptime {
+                if (@typeInfo(T) != .float) @compileError("solveMulti requires floating point type");
+                if (R > C) @compileError("solveMulti requires R <= C (square or wide matrix)");
+            }
+            // Convert to row format safely through array copy
+            var A_rows: [R]@Vector(C, T) = undefined;
+            const A_arr: [R * C]T = self.data;
+            inline for (0..R) |r| {
+                A_rows[r] = A_arr[r * C ..][0..C].*;
+            }
+            var B_rows: [R]@Vector(K, T) = undefined;
+            const B_arr: [R * K]T = B.data;
+            inline for (0..R) |r| {
+                B_rows[r] = B_arr[r * K ..][0..K].*;
+            }
+
+            const X_rows = qrSolve(T, R, C, K, A_rows, B_rows);
+            return .{ .data = joinRows(T, R, K, X_rows) };
+        }
+
+        /// Horizontally concatenates two matrices with the same number of rows.
+        /// Returns a new matrix [self | other] with dimensions R x (C + other.cols).
+        pub fn horzcat(self: Self, other: anytype) Matrix(T, R, C + @TypeOf(other).cols) {
+            comptime {
+                const OT = @TypeOf(other);
+                if (!@hasDecl(OT, "rows") or !@hasDecl(OT, "cols"))
+                    @compileError("horzcat: other must be a Matrix type");
+                if (OT.rows != R)
+                    @compileError("horzcat: matrices must have the same number of rows");
+                if (OT.ScalarType != T)
+                    @compileError("horzcat: scalar type mismatch");
+            }
+            const OtherC = @TypeOf(other).cols;
+            return .{ .data = lmao_horzcat(T, R, C, R, OtherC, self.data, other.data) };
+        }
     };
 }
+
+// Internal aliases to avoid name collision with Matrix methods
+const lmao_rowEchelonForm = rowEchelonForm;
+const lmao_reducedRowEchelonForm = reducedRowEchelonForm;
+const lmao_horzcat = horzcat;
+const lmao_identity = identity;
 
 pub const Vec2u = Matrix(u32, 2, 1);
 pub const Vec3u = Matrix(u32, 3, 1);

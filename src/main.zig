@@ -1331,3 +1331,139 @@ test "qrHouseholderCompact - compare with original qrHouseholder" {
     try expectApproxEqual(@abs(R_old_arr[4]), @abs(A_rows[1][1])); // R[1,1]
     try expectApproxEqual(@abs(R_old_arr[8]), @abs(A_rows[2][2])); // R[2,2]
 }
+
+// ============================================================================
+// Matrix User-Facing API Tests
+// ============================================================================
+
+test "Mat3f.ident creates identity matrix" {
+    const I = Mat3f.identity();
+    const arr = I.toArray();
+    const expected = [_]f32{ 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+    for (0..9) |i| {
+        try std.testing.expectEqual(expected[i], arr[i]);
+    }
+}
+
+test "Mat4f.ident creates identity matrix" {
+    const I = Mat4f.identity();
+    const arr = I.toArray();
+    for (0..4) |i| {
+        for (0..4) |j| {
+            const expected: f32 = if (i == j) 1.0 else 0.0;
+            try std.testing.expectEqual(expected, arr[i * 4 + j]);
+        }
+    }
+}
+
+test "Mat3f.rowEchelonForm" {
+    const m = Mat3f.fromArray(&.{ 2.0, 1.0, -1.0, -3.0, -1.0, 2.0, -2.0, 1.0, 2.0 });
+    const ref = m.rowEchelonForm();
+    const arr = ref.toArray();
+
+    // Check first pivot is 1
+    try expectApproxEqual(1.0, arr[0]);
+    // Check elements below first pivot are 0
+    try expectApproxEqual(0.0, arr[3]); // row 1, col 0
+    try expectApproxEqual(0.0, arr[6]); // row 2, col 0
+    // Check second pivot is 1
+    try expectApproxEqual(1.0, arr[4]);
+    // Check element below second pivot is 0
+    try expectApproxEqual(0.0, arr[7]); // row 2, col 1
+    // Check third pivot is 1
+    try expectApproxEqual(1.0, arr[8]);
+}
+
+test "Mat3f.reducedRowEchelonForm yields identity for full rank" {
+    const m = Mat3f.fromArray(&.{ 2.0, 1.0, -1.0, -3.0, -1.0, 2.0, -2.0, 1.0, 2.0 });
+    const rref = m.reducedRowEchelonForm();
+    const arr = rref.toArray();
+
+    // Full rank matrix should reduce to identity
+    const expected = [_]f32{ 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+    try expectArrayApproxEqual(9, expected, arr);
+}
+
+test "Mat3f.qrDecompose" {
+    const A = Mat3f.fromArray(&.{ 12.0, -51.0, 4.0, 6.0, 167.0, -68.0, -4.0, 24.0, -41.0 });
+    const qr = A.qrDecompose();
+
+    // Check Q is orthogonal (Q^T * Q ≈ I)
+    try checkOrthogonal(3, qr.Q.data);
+    // Check R is upper triangular
+    try checkUpperTriangular(3, 3, qr.R_mat.data);
+    // Check Q * R ≈ A
+    try checkQRReconstruction(3, 3, A.data, qr.Q.data, qr.R_mat.data);
+}
+
+test "Mat3f.solve Ax=b" {
+    // A = [4, 2, 1; 2, 5, 2; 1, 2, 4], x = [1, 2, 3], b = A*x = [11, 18, 17]
+    const A = Mat3f.fromArray(&.{ 4.0, 2.0, 1.0, 2.0, 5.0, 2.0, 1.0, 2.0, 4.0 });
+    const b = Vec3f.fromArray(&.{ 11.0, 18.0, 17.0 });
+
+    const x = A.solve(b);
+
+    try expectApproxEqual(1.0, x.x());
+    try expectApproxEqual(2.0, x.y());
+    try expectApproxEqual(3.0, x.z());
+}
+
+test "Mat2f.solve Ax=b" {
+    // A = [3, 1; 1, 2], x = [1, 1], b = [4, 3]
+    const A = Mat2f.fromArray(&.{ 3.0, 1.0, 1.0, 2.0 });
+    const b = Vec2f.fromArray(&.{ 4.0, 3.0 });
+
+    const x = A.solve(b);
+
+    try expectApproxEqual(1.0, x.x());
+    try expectApproxEqual(1.0, x.y());
+}
+
+test "Mat2f.solveMulti multiple RHS" {
+    const A = Mat2f.fromArray(&.{ 2.0, 1.0, 1.0, 3.0 });
+    // x1 = [1,1] -> b1 = [3, 4]
+    // x2 = [2,0] -> b2 = [4, 2]
+    const B = lmao.Matrix(f32, 2, 2).fromArray(&.{ 3.0, 4.0, 4.0, 2.0 });
+
+    const X = A.solveMulti(2, B);
+    const arr = X.toArray();
+
+    // First solution
+    try expectApproxEqual(1.0, arr[0]);
+    try expectApproxEqual(1.0, arr[2]);
+    // Second solution
+    try expectApproxEqual(2.0, arr[1]);
+    try expectApproxEqual(0.0, arr[3]);
+}
+
+test "Mat3f.horzcat with Vec3f" {
+    const A = Mat3f.fromArray(&.{ 1, 2, 3, 4, 5, 6, 7, 8, 9 });
+    const b = Vec3f.fromArray(&.{ 10, 11, 12 });
+
+    const Ab = A.horzcat(b);
+
+    // Result should be 3x4 matrix
+    try std.testing.expectEqual(@as(usize, 3), @TypeOf(Ab).rows);
+    try std.testing.expectEqual(@as(usize, 4), @TypeOf(Ab).cols);
+
+    const arr = Ab.toArray();
+    const expected = [_]f32{ 1, 2, 3, 10, 4, 5, 6, 11, 7, 8, 9, 12 };
+    for (0..12) |i| {
+        try std.testing.expectEqual(expected[i], arr[i]);
+    }
+}
+
+test "Mat2f.horzcat with Mat2f" {
+    const A = Mat2f.fromArray(&.{ 1, 2, 3, 4 });
+    const B = Mat2f.fromArray(&.{ 5, 6, 7, 8 });
+
+    const AB = A.horzcat(B);
+
+    // Result should be 2x4 matrix
+    try std.testing.expectEqual(@as(usize, 2), @TypeOf(AB).rows);
+    try std.testing.expectEqual(@as(usize, 4), @TypeOf(AB).cols);
+
+    const arr = AB.toArray();
+    const expected = [_]f32{ 1, 2, 5, 6, 3, 4, 7, 8 };
+    try expectArrayApproxEqual(8, expected, arr);
+}
