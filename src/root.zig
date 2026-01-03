@@ -599,6 +599,8 @@ pub inline fn qrSolve(
 }
 
 pub fn Matrix(comptime T: type, comptime R: usize, comptime C: usize) type {
+    const enable_ct_log = false; // flip when debugging
+
     comptime {
         const info = @typeInfo(T);
         if (info != .float and info != .int) @compileError("Matrix type must be a numeric type (float or int).");
@@ -613,6 +615,17 @@ pub fn Matrix(comptime T: type, comptime R: usize, comptime C: usize) type {
         pub const rows = R;
         pub const cols = C;
         pub const ScalarType = T;
+
+        comptime {
+            if (enable_ct_log) {
+                @compileLog(
+                    "Matrix " ++ @typeName(T) ++
+                        " (" ++ std.fmt.comptimePrint("{}x{}", .{ R, C }) ++ ")" ++
+                        " size=" ++ std.fmt.comptimePrint("{}", .{@sizeOf(Self)}) ++
+                        " align=" ++ std.fmt.comptimePrint("{}", .{@alignOf(Self)}),
+                );
+            }
+        }
 
         pub fn fromArray(a: *const [R * C]T) Self {
             return .{ .data = vectorFromArray(T, R * C, a) };
