@@ -1332,6 +1332,14 @@ test "qrHouseholderCompact - compare with original qrHouseholder" {
     try expectApproxEqual(@abs(R_old_arr[8]), @abs(A_rows[2][2])); // R[2,2]
 }
 
+test "splitRows - from Mat3f.data field" {
+    const m = Mat3f.fromArray(&.{ 1, 2, 3, 4, 5, 6, 7, 8, 9 });
+    const rows = lmao.splitRows(f32, 3, 3, m.data);
+    try std.testing.expectEqual(@as(f32, 1), rows[0][0]);
+    try std.testing.expectEqual(@as(f32, 4), rows[1][0]);
+    try std.testing.expectEqual(@as(f32, 7), rows[2][0]);
+}
+
 // ============================================================================
 // Matrix User-Facing API Tests
 // ============================================================================

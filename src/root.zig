@@ -101,6 +101,7 @@ pub inline fn transposeRCCR(comptime T: type, comptime R: usize, comptime C: usi
 }
 
 pub inline fn splitRows(comptime T: type, comptime R: usize, comptime C: usize, v: @Vector(R * C, T)) [R]@Vector(C, T) {
+    @setRuntimeSafety(false);
     const arr_ptr: *const [R * C]T = @ptrCast(&v);
     var rows: [R]@Vector(C, T) = undefined;
     inline for (0..R) |r| {
@@ -748,12 +749,7 @@ pub fn Matrix(comptime T: type, comptime R: usize, comptime C: usize) type {
             comptime {
                 if (@typeInfo(T) != .float) @compileError("rowEchelonForm requires floating point type");
             }
-            // Convert to row format safely through array copy
-            var row_data: [R]@Vector(C, T) = undefined;
-            const arr: [R * C]T = self.data;
-            inline for (0..R) |r| {
-                row_data[r] = arr[r * C ..][0..C].*;
-            }
+            var row_data = splitRows(T, R, C, self.data);
             lmao_rowEchelonForm(T, R, C, &row_data);
             return .{ .data = joinRows(T, R, C, row_data) };
         }
@@ -765,12 +761,7 @@ pub fn Matrix(comptime T: type, comptime R: usize, comptime C: usize) type {
             comptime {
                 if (@typeInfo(T) != .float) @compileError("reducedRowEchelonForm requires floating point type");
             }
-            // Convert to row format safely through array copy
-            var row_data: [R]@Vector(C, T) = undefined;
-            const arr: [R * C]T = self.data;
-            inline for (0..R) |r| {
-                row_data[r] = arr[r * C ..][0..C].*;
-            }
+            var row_data = splitRows(T, R, C, self.data);
             lmao_reducedRowEchelonForm(T, R, C, &row_data);
             return .{ .data = joinRows(T, R, C, row_data) };
         }
@@ -807,18 +798,8 @@ pub fn Matrix(comptime T: type, comptime R: usize, comptime C: usize) type {
                 if (@typeInfo(T) != .float) @compileError("solve requires floating point type");
                 if (R > C) @compileError("solve requires R <= C (square or wide matrix)");
             }
-            // Convert to row format safely through array copy
-            var A_rows: [R]@Vector(C, T) = undefined;
-            const A_arr: [R * C]T = self.data;
-            inline for (0..R) |r| {
-                A_rows[r] = A_arr[r * C ..][0..C].*;
-            }
-            var b_rows: [R]@Vector(1, T) = undefined;
-            const b_arr: [R]T = b.data;
-            inline for (0..R) |r| {
-                b_rows[r] = .{b_arr[r]};
-            }
-
+            const A_rows = splitRows(T, R, C, self.data);
+            const b_rows = splitRows(T, R, 1, b.data);
             const x_rows = qrSolve(T, R, C, 1, A_rows, b_rows);
             return .{ .data = joinRows(T, R, 1, x_rows) };
         }
@@ -832,18 +813,8 @@ pub fn Matrix(comptime T: type, comptime R: usize, comptime C: usize) type {
                 if (@typeInfo(T) != .float) @compileError("solveMulti requires floating point type");
                 if (R > C) @compileError("solveMulti requires R <= C (square or wide matrix)");
             }
-            // Convert to row format safely through array copy
-            var A_rows: [R]@Vector(C, T) = undefined;
-            const A_arr: [R * C]T = self.data;
-            inline for (0..R) |r| {
-                A_rows[r] = A_arr[r * C ..][0..C].*;
-            }
-            var B_rows: [R]@Vector(K, T) = undefined;
-            const B_arr: [R * K]T = B.data;
-            inline for (0..R) |r| {
-                B_rows[r] = B_arr[r * K ..][0..K].*;
-            }
-
+            const A_rows = splitRows(T, R, C, self.data);
+            const B_rows = splitRows(T, R, K, B.data);
             const X_rows = qrSolve(T, R, C, K, A_rows, B_rows);
             return .{ .data = joinRows(T, R, K, X_rows) };
         }
