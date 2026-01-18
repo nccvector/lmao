@@ -223,6 +223,50 @@ pub inline fn rowEchelonForm(comptime T: type, comptime R: usize, comptime C: us
     }
 }
 
+/// Row echelon form for determinant calculation.
+/// Unlike rowEchelonForm, this does NOT normalize rows (no division by pivot)
+/// and returns the number of row swaps (for sign) or null if singular.
+pub inline fn rowEchelonFormForDet(comptime T: type, comptime N: usize, rows: *[N]@Vector(N, T)) ?usize {
+    comptime {
+        if (@typeInfo(T) != .float) @compileError("function requires floating point type T");
+        if (N == 0) @compileError("N must be non-zero");
+    }
+
+    const eps = std.math.floatEps(T);
+    var swap_count: usize = 0;
+
+    for (0..N) |col| {
+        // Find pivot (largest absolute value in column)
+        var pivot: T = rows[col][col];
+        var pivot_row: usize = col;
+        for (col + 1..N) |r| {
+            if (@abs(rows[r][col]) > @abs(pivot)) {
+                pivot = rows[r][col];
+                pivot_row = r;
+            }
+        }
+
+        // Singular if pivot is ~0
+        if (@abs(pivot) < eps) return null;
+
+        // Swap rows if needed
+        if (pivot_row != col) {
+            const tmp = rows[col];
+            rows[col] = rows[pivot_row];
+            rows[pivot_row] = tmp;
+            swap_count += 1;
+        }
+
+        // Eliminate below (without normalizing the pivot row)
+        for (col + 1..N) |r| {
+            const factor: @Vector(N, T) = @splat(-rows[r][col] / rows[col][col]);
+            rows[r] = @mulAdd(@Vector(N, T), factor, rows[col], rows[r]);
+        }
+    }
+
+    return swap_count;
+}
+
 pub inline fn reducedRowEchelonForm(comptime T: type, comptime R: usize, comptime C: usize, aug_eqs: *[R]@Vector(C, T)) void {
     comptime {
         if (@typeInfo(T) != .float) @compileError("function requires floating point type T");
@@ -846,6 +890,453 @@ pub fn Matrix(comptime T: type, comptime R: usize, comptime C: usize) type {
             }
             const OtherC = @TypeOf(other).cols;
             return .{ .data = lmao_horzcat(T, R, C, R, OtherC, self.data, other.data) };
+        }
+
+        // ========================================================================
+        // Vector Operations (for column vectors, C == 1)
+        // ========================================================================
+
+        /// Computes the dot product of two vectors.
+        /// Only available for column vectors (C == 1).
+        pub fn dotProduct(self: Self, other: Self) T {
+            comptime {
+                if (C != 1) @compileError("dotProduct is only available for column vectors (C == 1)");
+            }
+            var result: T = 0;
+            inline for (0..R) |i| {
+                result += self.data[i] * other.data[i];
+            }
+            return result;
+        }
+
+        /// Computes the squared length (magnitude squared) of a vector.
+        /// Only available for column vectors (C == 1).
+        pub fn lengthSquared(self: Self) T {
+            comptime {
+                if (C != 1) @compileError("lengthSquared is only available for column vectors (C == 1)");
+            }
+            return self.dotProduct(self);
+        }
+
+        /// Computes the length (magnitude) of a vector.
+        /// Only available for column vectors (C == 1) with floating point type.
+        pub fn length(self: Self) T {
+            comptime {
+                if (C != 1) @compileError("length is only available for column vectors (C == 1)");
+                if (@typeInfo(T) != .float) @compileError("length requires floating point type");
+            }
+            return @sqrt(self.lengthSquared());
+        }
+
+        /// Returns a normalized (unit length) version of the vector.
+        /// Only available for column vectors (C == 1) with floating point type.
+        pub fn normalized(self: Self) Self {
+            comptime {
+                if (C != 1) @compileError("normalized is only available for column vectors (C == 1)");
+                if (@typeInfo(T) != .float) @compileError("normalized requires floating point type");
+            }
+            const len = self.length();
+            if (len < std.math.floatEps(T)) {
+                return self; // Return original vector if too small to normalize
+            }
+            return .{ .data = self.data / @as(@Vector(R, T), @splat(len)) };
+        }
+
+        /// Computes the cross product of two 3D vectors.
+        /// Only available for Vec3 (R == 3, C == 1).
+        pub fn cross(self: Self, other: Self) Self {
+            comptime {
+                if (R != 3 or C != 1) @compileError("cross product is only available for 3D vectors (R == 3, C == 1)");
+            }
+            return .{
+                .data = .{
+                    self.data[1] * other.data[2] - self.data[2] * other.data[1],
+                    self.data[2] * other.data[0] - self.data[0] * other.data[2],
+                    self.data[0] * other.data[1] - self.data[1] * other.data[0],
+                },
+            };
+        }
+
+        /// Negates the vector/matrix (returns -self).
+        pub fn negate(self: Self) Self {
+            return .{ .data = -self.data };
+        }
+
+        /// Scalar multiplication: returns self * scalar.
+        pub fn scale(self: Self, scalar: T) Self {
+            return .{ .data = self.data * @as(@Vector(R * C, T), @splat(scalar)) };
+        }
+
+        /// Scalar division: returns self / scalar.
+        pub fn divScalar(self: Self, scalar: T) Self {
+            return .{ .data = self.data / @as(@Vector(R * C, T), @splat(scalar)) };
+        }
+
+        /// Element-wise minimum.
+        pub fn min(self: Self, other: Self) Self {
+            return .{ .data = @min(self.data, other.data) };
+        }
+
+        /// Element-wise maximum.
+        pub fn max(self: Self, other: Self) Self {
+            return .{ .data = @max(self.data, other.data) };
+        }
+
+        /// Computes the distance between two points (vectors).
+        /// Only available for column vectors (C == 1) with floating point type.
+        pub fn distance(self: Self, other: Self) T {
+            comptime {
+                if (C != 1) @compileError("distance is only available for column vectors (C == 1)");
+                if (@typeInfo(T) != .float) @compileError("distance requires floating point type");
+            }
+            return self.sub(other).length();
+        }
+
+        // ========================================================================
+        // Matrix Inverse (for square matrices)
+        // ========================================================================
+
+        /// Computes the determinant of a square matrix.
+        /// Only available for square matrices (R == C).
+        /// Uses optimized formulas for 2x2 and 3x3, LU decomposition for larger.
+        pub fn determinant(self: Self) T {
+            comptime {
+                if (R != C) @compileError("determinant is only available for square matrices (R == C)");
+                if (@typeInfo(T) != .float) @compileError("determinant requires floating point type");
+            }
+
+            if (R == 2) {
+                // 2x2: ad - bc
+                return self.data[0] * self.data[3] - self.data[1] * self.data[2];
+            } else if (R == 3) {
+                // 3x3: Sarrus' rule / cofactor expansion
+                const a = self.data[0];
+                const b = self.data[1];
+                const c = self.data[2];
+                const d = self.data[3];
+                const e = self.data[4];
+                const f = self.data[5];
+                const g = self.data[6];
+                const h = self.data[7];
+                const i = self.data[8];
+                return a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+            } else if (R == 4) {
+                // 4x4: Cofactor expansion along first row
+                const m = self.data;
+                const s0 = m[0] * m[5] - m[4] * m[1];
+                const s1 = m[0] * m[6] - m[4] * m[2];
+                const s2 = m[0] * m[7] - m[4] * m[3];
+                const s3 = m[1] * m[6] - m[5] * m[2];
+                const s4 = m[1] * m[7] - m[5] * m[3];
+                const s5 = m[2] * m[7] - m[6] * m[3];
+
+                const c5 = m[10] * m[15] - m[14] * m[11];
+                const c4 = m[9] * m[15] - m[13] * m[11];
+                const c3 = m[9] * m[14] - m[13] * m[10];
+                const c2 = m[8] * m[15] - m[12] * m[11];
+                const c1 = m[8] * m[14] - m[12] * m[10];
+                const c0 = m[8] * m[13] - m[12] * m[9];
+
+                return s0 * c5 - s1 * c4 + s2 * c3 + s3 * c2 - s4 * c1 + s5 * c0;
+            } else {
+                // General case: Use row echelon form
+                // Determinant = (-1)^swaps * product of diagonal elements
+                var row_data = splitRows(T, R, C, self.data);
+
+                const swap_count = rowEchelonFormForDet(T, R, &row_data) orelse return 0;
+
+                // Product of diagonal elements
+                var det: T = 1;
+                for (0..R) |i| {
+                    det *= row_data[i][i];
+                }
+
+                // Apply sign from row swaps
+                if (swap_count % 2 == 1) det = -det;
+
+                return det;
+            }
+        }
+
+        /// Computes the inverse of a square matrix.
+        /// Only available for square matrices (R == C) with floating point type.
+        /// Returns null if the matrix is singular (non-invertible).
+        pub fn inverse(self: Self) ?Self {
+            comptime {
+                if (R != C) @compileError("inverse is only available for square matrices (R == C)");
+                if (@typeInfo(T) != .float) @compileError("inverse requires floating point type");
+            }
+
+            const eps = std.math.floatEps(T);
+
+            if (R == 2) {
+                // 2x2 direct formula
+                const det = self.determinant();
+                if (@abs(det) < eps) return null;
+                const inv_det = 1 / det;
+                return .{
+                    .data = .{
+                        self.data[3] * inv_det,
+                        -self.data[1] * inv_det,
+                        -self.data[2] * inv_det,
+                        self.data[0] * inv_det,
+                    },
+                };
+            } else if (R == 3) {
+                // 3x3 using cofactors
+                const m = self.data;
+                const a = m[0];
+                const b = m[1];
+                const c = m[2];
+                const d = m[3];
+                const e = m[4];
+                const f = m[5];
+                const g = m[6];
+                const h = m[7];
+                const i = m[8];
+
+                const det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+                if (@abs(det) < eps) return null;
+                const inv_det = 1 / det;
+
+                return .{
+                    .data = .{
+                        (e * i - f * h) * inv_det,
+                        (c * h - b * i) * inv_det,
+                        (b * f - c * e) * inv_det,
+                        (f * g - d * i) * inv_det,
+                        (a * i - c * g) * inv_det,
+                        (c * d - a * f) * inv_det,
+                        (d * h - e * g) * inv_det,
+                        (b * g - a * h) * inv_det,
+                        (a * e - b * d) * inv_det,
+                    },
+                };
+            } else if (R == 4) {
+                // 4x4 optimized inverse using cofactors
+                const m = self.data;
+
+                const s0 = m[0] * m[5] - m[4] * m[1];
+                const s1 = m[0] * m[6] - m[4] * m[2];
+                const s2 = m[0] * m[7] - m[4] * m[3];
+                const s3 = m[1] * m[6] - m[5] * m[2];
+                const s4 = m[1] * m[7] - m[5] * m[3];
+                const s5 = m[2] * m[7] - m[6] * m[3];
+
+                const c5 = m[10] * m[15] - m[14] * m[11];
+                const c4 = m[9] * m[15] - m[13] * m[11];
+                const c3 = m[9] * m[14] - m[13] * m[10];
+                const c2 = m[8] * m[15] - m[12] * m[11];
+                const c1 = m[8] * m[14] - m[12] * m[10];
+                const c0 = m[8] * m[13] - m[12] * m[9];
+
+                const det = s0 * c5 - s1 * c4 + s2 * c3 + s3 * c2 - s4 * c1 + s5 * c0;
+                if (@abs(det) < eps) return null;
+                const inv_det = 1 / det;
+
+                return .{
+                    .data = .{
+                        (m[5] * c5 - m[6] * c4 + m[7] * c3) * inv_det,
+                        (-m[1] * c5 + m[2] * c4 - m[3] * c3) * inv_det,
+                        (m[13] * s5 - m[14] * s4 + m[15] * s3) * inv_det,
+                        (-m[9] * s5 + m[10] * s4 - m[11] * s3) * inv_det,
+                        (-m[4] * c5 + m[6] * c2 - m[7] * c1) * inv_det,
+                        (m[0] * c5 - m[2] * c2 + m[3] * c1) * inv_det,
+                        (-m[12] * s5 + m[14] * s2 - m[15] * s1) * inv_det,
+                        (m[8] * s5 - m[10] * s2 + m[11] * s1) * inv_det,
+                        (m[4] * c4 - m[5] * c2 + m[7] * c0) * inv_det,
+                        (-m[0] * c4 + m[1] * c2 - m[3] * c0) * inv_det,
+                        (m[12] * s4 - m[13] * s2 + m[15] * s0) * inv_det,
+                        (-m[8] * s4 + m[9] * s2 - m[11] * s0) * inv_det,
+                        (-m[4] * c3 + m[5] * c1 - m[6] * c0) * inv_det,
+                        (m[0] * c3 - m[1] * c1 + m[2] * c0) * inv_det,
+                        (-m[12] * s3 + m[13] * s1 - m[14] * s0) * inv_det,
+                        (m[8] * s3 - m[9] * s1 + m[10] * s0) * inv_det,
+                    },
+                };
+            } else {
+                // General case: Use [A | I] -> RREF -> [I | A^-1]
+                // Augment matrix with identity: [A | I]
+                const augmented = self.horzcat(Self.identity());
+                var row_data = splitRows(T, R, R * 2, augmented.data);
+
+                // Apply reduced row echelon form
+                lmao_reducedRowEchelonForm(T, R, R * 2, &row_data);
+
+                // Check if left side is identity (matrix was invertible)
+                // If any diagonal element is not ~1, matrix is singular
+                for (0..R) |d| {
+                    if (@abs(row_data[d][d] - 1) > eps) return null;
+                }
+
+                // Extract right half (the inverse)
+                var result: Self = undefined;
+                for (0..R) |r| {
+                    for (0..R) |c| {
+                        result.data[r * R + c] = row_data[r][R + c];
+                    }
+                }
+                return result;
+            }
+        }
+
+        // ========================================================================
+        // Transformation Matrix Builders (for 4x4 matrices)
+        // ========================================================================
+
+        /// Creates a translation matrix.
+        /// Only available for 4x4 matrices.
+        pub fn translation(tx: T, ty: T, tz: T) Self {
+            comptime {
+                if (R != 4 or C != 4) @compileError("translation is only available for 4x4 matrices");
+            }
+            return .{
+                .data = .{
+                    1, 0, 0, tx,
+                    0, 1, 0, ty,
+                    0, 0, 1, tz,
+                    0, 0, 0, 1,
+                },
+            };
+        }
+
+        /// Creates a uniform scaling matrix.
+        /// Only available for 4x4 matrices.
+        pub fn scaling(sx: T, sy: T, sz: T) Self {
+            comptime {
+                if (R != 4 or C != 4) @compileError("scaling is only available for 4x4 matrices");
+            }
+            return .{
+                .data = .{
+                    sx, 0,  0,  0,
+                    0,  sy, 0,  0,
+                    0,  0,  sz, 0,
+                    0,  0,  0,  1,
+                },
+            };
+        }
+
+        /// Creates a rotation matrix around the X axis.
+        /// Angle is in radians. Only available for 4x4 matrices.
+        pub fn rotationX(angle: T) Self {
+            comptime {
+                if (R != 4 or C != 4) @compileError("rotationX is only available for 4x4 matrices");
+                if (@typeInfo(T) != .float) @compileError("rotationX requires floating point type");
+            }
+            const c = @cos(angle);
+            const s = @sin(angle);
+            return .{
+                .data = .{
+                    1, 0, 0,  0,
+                    0, c, -s, 0,
+                    0, s, c,  0,
+                    0, 0, 0,  1,
+                },
+            };
+        }
+
+        /// Creates a rotation matrix around the Y axis.
+        /// Angle is in radians. Only available for 4x4 matrices.
+        pub fn rotationY(angle: T) Self {
+            comptime {
+                if (R != 4 or C != 4) @compileError("rotationY is only available for 4x4 matrices");
+                if (@typeInfo(T) != .float) @compileError("rotationY requires floating point type");
+            }
+            const c = @cos(angle);
+            const s = @sin(angle);
+            return .{
+                .data = .{
+                    c,  0, s, 0,
+                    0,  1, 0, 0,
+                    -s, 0, c, 0,
+                    0,  0, 0, 1,
+                },
+            };
+        }
+
+        /// Creates a rotation matrix around the Z axis.
+        /// Angle is in radians. Only available for 4x4 matrices.
+        pub fn rotationZ(angle: T) Self {
+            comptime {
+                if (R != 4 or C != 4) @compileError("rotationZ is only available for 4x4 matrices");
+                if (@typeInfo(T) != .float) @compileError("rotationZ requires floating point type");
+            }
+            const c = @cos(angle);
+            const s = @sin(angle);
+            return .{
+                .data = .{
+                    c, -s, 0, 0,
+                    s, c,  0, 0,
+                    0, 0,  1, 0,
+                    0, 0,  0, 1,
+                },
+            };
+        }
+
+        /// Creates a look-at view matrix (camera looking from eye to target).
+        /// Only available for 4x4 matrices.
+        pub fn lookAt(eye: Matrix(T, 3, 1), target: Matrix(T, 3, 1), world_up: Matrix(T, 3, 1)) Self {
+            comptime {
+                if (R != 4 or C != 4) @compileError("lookAt is only available for 4x4 matrices");
+                if (@typeInfo(T) != .float) @compileError("lookAt requires floating point type");
+            }
+            const forward = target.sub(eye).normalized();
+            const right = forward.cross(world_up).normalized();
+            const up = right.cross(forward);
+
+            return .{
+                .data = .{
+                    right.data[0],    right.data[1],    right.data[2],    -right.dotProduct(eye),
+                    up.data[0],       up.data[1],       up.data[2],       -up.dotProduct(eye),
+                    -forward.data[0], -forward.data[1], -forward.data[2], forward.dotProduct(eye),
+                    0,                0,                0,                1,
+                },
+            };
+        }
+
+        /// Transforms a 3D point (w=1) by this 4x4 matrix.
+        /// Returns the transformed point (perspective division applied if w != 1).
+        /// Only available for 4x4 matrices.
+        pub fn transformPoint(self: Self, point: Matrix(T, 3, 1)) Matrix(T, 3, 1) {
+            comptime {
+                if (R != 4 or C != 4) @compileError("transformPoint is only available for 4x4 matrices");
+            }
+            const px = point.data[0];
+            const py = point.data[1];
+            const pz = point.data[2];
+            const m = self.data;
+
+            const w_comp = m[12] * px + m[13] * py + m[14] * pz + m[15];
+            const inv_w = if (@abs(w_comp) > std.math.floatEps(T)) 1 / w_comp else 1;
+
+            return .{
+                .data = .{
+                    (m[0] * px + m[1] * py + m[2] * pz + m[3]) * inv_w,
+                    (m[4] * px + m[5] * py + m[6] * pz + m[7]) * inv_w,
+                    (m[8] * px + m[9] * py + m[10] * pz + m[11]) * inv_w,
+                },
+            };
+        }
+
+        /// Transforms a 3D direction (w=0) by this 4x4 matrix.
+        /// Returns the transformed direction (ignores translation).
+        /// Only available for 4x4 matrices.
+        pub fn transformDirection(self: Self, dir: Matrix(T, 3, 1)) Matrix(T, 3, 1) {
+            comptime {
+                if (R != 4 or C != 4) @compileError("transformDirection is only available for 4x4 matrices");
+            }
+            const dx = dir.data[0];
+            const dy = dir.data[1];
+            const dz = dir.data[2];
+            const m = self.data;
+
+            return .{
+                .data = .{
+                    m[0] * dx + m[1] * dy + m[2] * dz,
+                    m[4] * dx + m[5] * dy + m[6] * dz,
+                    m[8] * dx + m[9] * dy + m[10] * dz,
+                },
+            };
         }
     };
 }
